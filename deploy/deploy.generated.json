@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.33.93.31351",
-      "templateHash": "17706928085516919597"
+      "templateHash": "10998438933422785680"
     }
   },
   "parameters": {
@@ -297,7 +297,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.33.93.31351",
-              "templateHash": "10405069657241295221"
+              "templateHash": "10743114832603214142"
             }
           },
           "parameters": {
@@ -457,6 +457,7 @@
                   "alwaysOn": true,
                   "webSocketsEnabled": true,
                   "ftpsState": "Disabled",
+                  "use32BitWorkerProcess": false,
                   "appSettings": [
                     {
                       "name": "ConnectionStrings__SQLDB",

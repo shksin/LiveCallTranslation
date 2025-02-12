@@ -99,6 +99,7 @@ resource appService 'Microsoft.Web/sites@2024-04-01' = {
       alwaysOn: true
       webSocketsEnabled: true
       ftpsState: 'Disabled'
+      use32BitWorkerProcess: false
       appSettings: [
         {
           name: 'ConnectionStrings__SQLDB'
