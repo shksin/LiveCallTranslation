@@ -1,0 +1,45 @@
+<html data-theme="light">
+
+<head>
+    <title>Live Call Translation - User Interface</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+</head>
+
+<body>
+    <div class="container is-max-tablet section is-large">
+        <article class="panel">
+            <p class="panel-heading">Live Call Translation Dial-in</p>
+            <div class="p-3 fieldset">
+                <div class="field">
+                    <label class="label">Name</label>
+                    <div class="control">
+                        <input class="input" type="text" id="name" placeholder="Name">
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="label">Language</label>
+                    <div class="control">
+                        <div class="select is-fullwidth">
+                            <select id="language">
+                                <option value="ar">Arabic</option>
+                                <option value="es">Spanish</option>
+                                <option value="fr">French</option>
+                                <option value="de">German</option>
+                                <option value="vi">Vietnamese</option>
+                                <option value="zh">Chinese</option>
+                            </select>
+                        </div>
+                    </div>
+                </div>
+            </div>
+            <p class="panel-block" id="status">Waiting for auth...</p>
+            <div class="buttons panel-block">
+                <button class="button is-success" id="connect" disabled="true">Connect</button>
+                <button class="button is-danger" id="disconnect" disabled="true">Disconnect</button>
+            </div>
+        </article>
+    </div>
+    <script src="./main.js"></script>
+</body>
+
+</html>

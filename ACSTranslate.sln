@@ -1,0 +1,27 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+# Visual Studio Version 17
+VisualStudioVersion = 17.0.31903.59
+MinimumVisualStudioVersion = 10.0.40219.1
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "ACSTranslate", "src\ACSTranslate.API\ACSTranslate.csproj", "{1F1E20F2-46A3-4578-9361-E66E9568F553}"
+EndProject
+Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "src", "src", "{E9B56709-3390-420D-9DC8-E804AAB54599}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{1F1E20F2-46A3-4578-9361-E66E9568F553}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{1F1E20F2-46A3-4578-9361-E66E9568F553}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{1F1E20F2-46A3-4578-9361-E66E9568F553}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{1F1E20F2-46A3-4578-9361-E66E9568F553}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(NestedProjects) = preSolution
+		{1F1E20F2-46A3-4578-9361-E66E9568F553} = {2E9D553A-038C-474A-9177-066C59E0A06B}
+	EndGlobalSection
+EndGlobal

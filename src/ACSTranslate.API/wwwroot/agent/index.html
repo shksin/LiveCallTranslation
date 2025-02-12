@@ -1,0 +1,70 @@
+<html data-theme="light">
+
+<head>
+    <title>Live Call Translation - Agent Interface</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+            margin: 0;
+            padding: 0;
+        }
+        nav, main {
+            width:100%;
+        }
+
+        .native,
+        .translated {
+            display: block;
+        }
+
+        #transcriptionList>li {
+            margin-bottom: 10px;
+        }
+        #callList>li {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        h2 {
+            margin-bottom: 10px !important;
+            border-bottom: 1px solid #ddd;
+        }
+        .headContainer {
+            margin-bottom: 10px;
+            padding-bottom: 10px;
+            border-bottom: 1px solid #ddd;
+        }
+        .headContainer > h1 {
+            margin-top: 10px;
+            padding-top: 10px;
+        }
+    </style>
+</head>
+<body>
+        <div class="container headContainer">
+            <h1 class="is-size-3">Live Call Translation - Agent Interface</h1>
+            <div class="panel-block">
+                <a class="is-size-7" href="/user/" target="_blank">Open User Interface</a>
+            </div>
+        </div>
+    <main class="">
+        <div class="container columns">
+        <aside class="menu column is-one-quarter">
+            <h2>Calls</h2>
+            <ul id="callList" class="menu-list">
+
+            </ul>
+        </aside>
+        <div class="column">
+            <h2>Call Transcription</h2>
+            <ul id="transcriptionList">
+
+            </ul>
+        </div>
+    </div>
+    </main>
+    <script src="./main.js"></script>
+</body>
+
+</html>
