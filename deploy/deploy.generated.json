@@ -1,0 +1,708 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "metadata": {
+    "_generator": {
+      "name": "bicep",
+      "version": "0.33.93.31351",
+      "templateHash": "17706928085516919597"
+    }
+  },
+  "parameters": {
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "acsDataLocation": {
+      "type": "string",
+      "defaultValue": "Australia"
+    },
+    "prefix": {
+      "type": "string",
+      "defaultValue": "demo",
+      "metadata": {
+        "description": "A prefix to add to the start of all resource names. Note: A \"unique\" suffix will also be added"
+      }
+    },
+    "tags": {
+      "type": "object",
+      "defaultValue": {},
+      "metadata": {
+        "description": "Tags to apply to all deployed resources"
+      }
+    },
+    "deploymentArtifactUrl": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "The URL to the deployment artifact to deploy, if left empty deployment will be skipped and you will need to deploy after the template is done"
+      }
+    }
+  },
+  "variables": {
+    "databaseName": "[format('{0}db', parameters('prefix'))]",
+    "uniqueNameFormat": "[format('{0}-{{0}}-{1}', parameters('prefix'), uniqueString(resourceGroup().id, parameters('prefix')))]",
+    "uniqueShortNameFormat": "[toLower(format('{0}{{0}}{1}', parameters('prefix'), uniqueString(resourceGroup().id, parameters('prefix'))))]"
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "[format('{0}-core', deployment().name)]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "acsDataLocation": {
+            "value": "[parameters('acsDataLocation')]"
+          },
+          "uniqueNameFormat": {
+            "value": "[variables('uniqueNameFormat')]"
+          },
+          "uniqueShortNameFormat": {
+            "value": "[variables('uniqueShortNameFormat')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.33.93.31351",
+              "templateHash": "7684931130548386723"
+            }
+          },
+          "parameters": {
+            "uniqueNameFormat": {
+              "type": "string"
+            },
+            "uniqueShortNameFormat": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "acsDataLocation": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.OperationalInsights/workspaces",
+              "apiVersion": "2023-09-01",
+              "name": "[format(parameters('uniqueNameFormat'), 'logs')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "retentionInDays": 30,
+                "sku": {
+                  "name": "PerGB2018"
+                }
+              }
+            },
+            {
+              "type": "Microsoft.Communication/communicationServices",
+              "apiVersion": "2023-06-01-preview",
+              "name": "[format(parameters('uniqueNameFormat'), 'acs')]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "dataLocation": "[parameters('acsDataLocation')]"
+              }
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.Communication/communicationServices/{0}', format(parameters('uniqueNameFormat'), 'acs'))]",
+              "name": "allLogsToLogAnalytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]",
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Communication/communicationServices', format(parameters('uniqueNameFormat'), 'acs'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.EventGrid/systemTopics",
+              "apiVersion": "2024-06-01-preview",
+              "name": "[format(parameters('uniqueNameFormat'), 'eg-acs')]",
+              "location": "global",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "source": "[resourceId('Microsoft.Communication/communicationServices', format(parameters('uniqueNameFormat'), 'acs'))]",
+                "topicType": "Microsoft.Communication.CommunicationServices"
+              },
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Communication/communicationServices', format(parameters('uniqueNameFormat'), 'acs'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.EventGrid/systemTopics/{0}', format(parameters('uniqueNameFormat'), 'eg-acs'))]",
+              "name": "allLogsToLogAnalytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]",
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.EventGrid/systemTopics', format(parameters('uniqueNameFormat'), 'eg-acs'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.CognitiveServices/accounts",
+              "apiVersion": "2024-10-01",
+              "name": "[format(parameters('uniqueNameFormat'), 'aispeech')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "kind": "SpeechServices",
+              "sku": {
+                "name": "S0"
+              },
+              "properties": {
+                "customSubDomainName": "[format(parameters('uniqueShortNameFormat'), 'aispeech')]",
+                "disableLocalAuth": true
+              }
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', format(parameters('uniqueNameFormat'), 'aispeech'))]",
+              "name": "allLogsToLogAnalytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]",
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.CognitiveServices/accounts', format(parameters('uniqueNameFormat'), 'aispeech'))]",
+                "[resourceId('Microsoft.OperationalInsights/workspaces', format(parameters('uniqueNameFormat'), 'logs'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "acsName": {
+              "type": "string",
+              "value": "[format(parameters('uniqueNameFormat'), 'acs')]"
+            },
+            "acsSystemTopicName": {
+              "type": "string",
+              "value": "[format(parameters('uniqueNameFormat'), 'eg-acs')]"
+            },
+            "aiSpeechName": {
+              "type": "string",
+              "value": "[format(parameters('uniqueNameFormat'), 'aispeech')]"
+            },
+            "logAnalyticsName": {
+              "type": "string",
+              "value": "[format(parameters('uniqueNameFormat'), 'logs')]"
+            },
+            "aiSpeechId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.CognitiveServices/accounts', format(parameters('uniqueNameFormat'), 'aispeech'))]"
+            },
+            "aiSpeechLocation": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', format(parameters('uniqueNameFormat'), 'aispeech')), '2024-10-01', 'full').location]"
+            },
+            "acsEndpoint": {
+              "type": "string",
+              "value": "[format('https://{0}/', reference(resourceId('Microsoft.Communication/communicationServices', format(parameters('uniqueNameFormat'), 'acs')), '2023-06-01-preview').hostName)]"
+            },
+            "acsSystemTopicId": {
+              "type": "string",
+              "value": "[resourceId('Microsoft.EventGrid/systemTopics', format(parameters('uniqueNameFormat'), 'eg-acs'))]"
+            }
+          }
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "[format('{0}-hosting', deployment().name)]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "location": {
+            "value": "[parameters('location')]"
+          },
+          "uniqueNameFormat": {
+            "value": "[variables('uniqueNameFormat')]"
+          },
+          "tags": {
+            "value": "[parameters('tags')]"
+          },
+          "databaseName": {
+            "value": "[variables('databaseName')]"
+          },
+          "deploymentArtifactUrl": {
+            "value": "[parameters('deploymentArtifactUrl')]"
+          },
+          "acsName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.acsName.value]"
+          },
+          "acsSystemTopicName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.acsSystemTopicName.value]"
+          },
+          "aiSpeechName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.aiSpeechName.value]"
+          },
+          "logAnalyticsName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.logAnalyticsName.value]"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.33.93.31351",
+              "templateHash": "10405069657241295221"
+            }
+          },
+          "parameters": {
+            "uniqueNameFormat": {
+              "type": "string"
+            },
+            "location": {
+              "type": "string"
+            },
+            "databaseName": {
+              "type": "string"
+            },
+            "logAnalyticsName": {
+              "type": "string"
+            },
+            "acsName": {
+              "type": "string"
+            },
+            "acsSystemTopicName": {
+              "type": "string"
+            },
+            "aiSpeechName": {
+              "type": "string"
+            },
+            "deploymentArtifactUrl": {
+              "type": "string"
+            },
+            "tags": {
+              "type": "object"
+            }
+          },
+          "resources": [
+            {
+              "type": "Microsoft.Sql/servers/databases",
+              "apiVersion": "2024-05-01-preview",
+              "name": "[format('{0}/{1}', format(parameters('uniqueNameFormat'), 'sql'), parameters('databaseName'))]",
+              "tags": "[parameters('tags')]",
+              "location": "[parameters('location')]",
+              "sku": {
+                "name": "Standard",
+                "tier": "Standard"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers', format(parameters('uniqueNameFormat'), 'sql'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}/{1}', format(parameters('uniqueNameFormat'), 'backend'), 'scm')]",
+              "properties": {
+                "allow": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/sites/basicPublishingCredentialsPolicies",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}/{1}', format(parameters('uniqueNameFormat'), 'backend'), 'ftp')]",
+              "properties": {
+                "allow": false
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend'))]"
+              ]
+            },
+            {
+              "condition": "[not(empty(trim(parameters('deploymentArtifactUrl'))))]",
+              "type": "Microsoft.Web/sites/extensions",
+              "apiVersion": "2024-04-01",
+              "name": "[format('{0}/{1}', format(parameters('uniqueNameFormat'), 'backend'), 'MSDeploy')]",
+              "properties": {
+                "packageUri": "[parameters('deploymentArtifactUrl')]"
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/components",
+              "apiVersion": "2020-02-02-preview",
+              "name": "[format(parameters('uniqueNameFormat'), 'appins')]",
+              "location": "[parameters('location')]",
+              "kind": "web",
+              "properties": {
+                "Application_Type": "web",
+                "WorkspaceResourceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]"
+              }
+            },
+            {
+              "type": "Microsoft.Sql/servers",
+              "apiVersion": "2024-05-01-preview",
+              "name": "[format(parameters('uniqueNameFormat'), 'sql')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "properties": {
+                "administrators": {
+                  "azureADOnlyAuthentication": true,
+                  "tenantId": "[subscription().tenantId]",
+                  "login": "[uniqueString(resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend')))]",
+                  "sid": "[reference(resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend')), '2024-04-01', 'full').identity.principalId]",
+                  "principalType": "Application"
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.Sql/servers/{0}/databases/{1}', format(parameters('uniqueNameFormat'), 'sql'), parameters('databaseName'))]",
+              "name": "allLogsToLogAnalytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]",
+                "logs": [
+                  {
+                    "categoryGroup": "allLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Sql/servers/databases', format(parameters('uniqueNameFormat'), 'sql'), parameters('databaseName'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Web/serverfarms",
+              "apiVersion": "2024-04-01",
+              "name": "[format(parameters('uniqueNameFormat'), 'asp')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "sku": {
+                "tier": "PremiumV3",
+                "name": "P1V3",
+                "capacity": 1
+              }
+            },
+            {
+              "type": "Microsoft.Web/sites",
+              "apiVersion": "2024-04-01",
+              "name": "[format(parameters('uniqueNameFormat'), 'backend')]",
+              "location": "[parameters('location')]",
+              "tags": "[parameters('tags')]",
+              "identity": {
+                "type": "SystemAssigned"
+              },
+              "properties": {
+                "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', format(parameters('uniqueNameFormat'), 'asp'))]",
+                "httpsOnly": true,
+                "clientAffinityEnabled": true,
+                "publicNetworkAccess": "Enabled",
+                "autoGeneratedDomainNameLabelScope": "NoReuse",
+                "siteConfig": {
+                  "alwaysOn": true,
+                  "webSocketsEnabled": true,
+                  "ftpsState": "Disabled",
+                  "appSettings": [
+                    {
+                      "name": "ConnectionStrings__SQLDB",
+                      "value": ""
+                    },
+                    {
+                      "name": "ACS__Endpoint",
+                      "value": "[format('https://{0}/', reference(resourceId('Microsoft.Communication/communicationServices', parameters('acsName')), '2023-06-01-preview').hostName)]"
+                    },
+                    {
+                      "name": "ACS__InboundNumber",
+                      "value": "*"
+                    },
+                    {
+                      "name": "AzureTenantId",
+                      "value": "[subscription().tenantId]"
+                    },
+                    {
+                      "name": "AzureAISpeech__Region",
+                      "value": "[reference(resourceId('Microsoft.CognitiveServices/accounts', parameters('aiSpeechName')), '2024-10-01', 'full').location]"
+                    },
+                    {
+                      "name": "AzureAISpeech__ResourceID",
+                      "value": "[resourceId('Microsoft.CognitiveServices/accounts', parameters('aiSpeechName'))]"
+                    },
+                    {
+                      "name": "Translator",
+                      "value": "AzureAISpeech"
+                    },
+                    {
+                      "name": "EventGrid__TopicResourceID",
+                      "value": "[resourceId('Microsoft.EventGrid/systemTopics', parameters('acsSystemTopicName'))]"
+                    },
+                    {
+                      "name": "APPLICATIONINSIGHTS_CONNECTION_STRING",
+                      "value": "[reference(resourceId('Microsoft.Insights/components', format(parameters('uniqueNameFormat'), 'appins')), '2020-02-02-preview').ConnectionString]"
+                    }
+                  ]
+                }
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Insights/components', format(parameters('uniqueNameFormat'), 'appins'))]",
+                "[resourceId('Microsoft.Web/serverfarms', format(parameters('uniqueNameFormat'), 'asp'))]"
+              ]
+            },
+            {
+              "type": "Microsoft.Insights/diagnosticSettings",
+              "apiVersion": "2021-05-01-preview",
+              "scope": "[format('Microsoft.Web/sites/{0}', format(parameters('uniqueNameFormat'), 'backend'))]",
+              "name": "allLogsToLogAnalytics",
+              "properties": {
+                "workspaceId": "[resourceId('Microsoft.OperationalInsights/workspaces', parameters('logAnalyticsName'))]",
+                "logs": [
+                  {
+                    "category": "AppServiceAntivirusScanAuditLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceHTTPLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceConsoleLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceAppLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceFileAuditLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceAuditLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceIPSecAuditLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServicePlatformLogs",
+                    "enabled": true
+                  },
+                  {
+                    "category": "AppServiceAuthenticationLogs",
+                    "enabled": true
+                  }
+                ]
+              },
+              "dependsOn": [
+                "[resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend'))]"
+              ]
+            }
+          ],
+          "outputs": {
+            "principalId": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Web/sites', format(parameters('uniqueNameFormat'), 'backend')), '2024-04-01', 'full').identity.principalId]"
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name))]"
+      ]
+    },
+    {
+      "type": "Microsoft.Resources/deployments",
+      "apiVersion": "2022-09-01",
+      "name": "[format('{0}-rbac', deployment().name)]",
+      "properties": {
+        "expressionEvaluationOptions": {
+          "scope": "inner"
+        },
+        "mode": "Incremental",
+        "parameters": {
+          "acsName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.acsName.value]"
+          },
+          "acsSystemTopicName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.acsSystemTopicName.value]"
+          },
+          "aiSpeechName": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name)), '2022-09-01').outputs.aiSpeechName.value]"
+          },
+          "principalId": {
+            "value": "[reference(resourceId('Microsoft.Resources/deployments', format('{0}-hosting', deployment().name)), '2022-09-01').outputs.principalId.value]"
+          },
+          "principalType": {
+            "value": "ServicePrincipal"
+          }
+        },
+        "template": {
+          "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+          "languageVersion": "2.0",
+          "contentVersion": "1.0.0.0",
+          "metadata": {
+            "_generator": {
+              "name": "bicep",
+              "version": "0.33.93.31351",
+              "templateHash": "6810023440977069767"
+            }
+          },
+          "parameters": {
+            "acsName": {
+              "type": "string"
+            },
+            "acsSystemTopicName": {
+              "type": "string"
+            },
+            "aiSpeechName": {
+              "type": "string"
+            },
+            "principalId": {
+              "type": "string"
+            },
+            "principalType": {
+              "type": "string",
+              "allowedValues": [
+                "ServicePrincipal",
+                "User"
+              ]
+            }
+          },
+          "resources": {
+            "acs": {
+              "existing": true,
+              "type": "Microsoft.Communication/communicationServices",
+              "apiVersion": "2023-06-01-preview",
+              "name": "[parameters('acsName')]"
+            },
+            "acsOwnerRole": {
+              "existing": true,
+              "type": "Microsoft.Authorization/roleDefinitions",
+              "apiVersion": "2022-05-01-preview",
+              "subscriptionId": "[subscription().subscriptionId]",
+              "name": "09976791-48a7-449e-bb21-39d1a415f350"
+            },
+            "acsOwnerRoleAssignment": {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.Communication/communicationServices/{0}', parameters('acsName'))]",
+              "name": "[guid(resourceId('Microsoft.Communication/communicationServices', parameters('acsName')), subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '09976791-48a7-449e-bb21-39d1a415f350'), parameters('principalId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '09976791-48a7-449e-bb21-39d1a415f350')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "[parameters('principalType')]"
+              }
+            },
+            "eventGridSystemTopic": {
+              "existing": true,
+              "type": "Microsoft.EventGrid/systemTopics",
+              "apiVersion": "2024-06-01-preview",
+              "name": "[parameters('acsSystemTopicName')]"
+            },
+            "eventGridContributorRole": {
+              "existing": true,
+              "type": "Microsoft.Authorization/roleDefinitions",
+              "apiVersion": "2022-05-01-preview",
+              "subscriptionId": "[subscription().subscriptionId]",
+              "name": "1e241071-0855-49ea-94dc-649edcd759de"
+            },
+            "eventGridContributorRoleAssignment": {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.EventGrid/systemTopics/{0}', parameters('acsSystemTopicName'))]",
+              "name": "[guid(resourceId('Microsoft.EventGrid/systemTopics', parameters('acsSystemTopicName')), subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '1e241071-0855-49ea-94dc-649edcd759de'), parameters('principalId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '1e241071-0855-49ea-94dc-649edcd759de')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "[parameters('principalType')]"
+              }
+            },
+            "aiSpeech": {
+              "existing": true,
+              "type": "Microsoft.CognitiveServices/accounts",
+              "apiVersion": "2024-10-01",
+              "name": "[parameters('aiSpeechName')]"
+            },
+            "aiSpeechUserRole": {
+              "existing": true,
+              "type": "Microsoft.Authorization/roleDefinitions",
+              "apiVersion": "2022-05-01-preview",
+              "subscriptionId": "[subscription().subscriptionId]",
+              "name": "f2dc8367-1007-4938-bd23-fe263f013447"
+            },
+            "aiSpeechRoleAssignment": {
+              "type": "Microsoft.Authorization/roleAssignments",
+              "apiVersion": "2022-04-01",
+              "scope": "[format('Microsoft.CognitiveServices/accounts/{0}', parameters('aiSpeechName'))]",
+              "name": "[guid(resourceId('Microsoft.CognitiveServices/accounts', parameters('aiSpeechName')), subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'f2dc8367-1007-4938-bd23-fe263f013447'), parameters('principalId'))]",
+              "properties": {
+                "roleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', 'f2dc8367-1007-4938-bd23-fe263f013447')]",
+                "principalId": "[parameters('principalId')]",
+                "principalType": "[parameters('principalType')]"
+              }
+            }
+          }
+        }
+      },
+      "dependsOn": [
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-core', deployment().name))]",
+        "[resourceId('Microsoft.Resources/deployments', format('{0}-hosting', deployment().name))]"
+      ]
+    }
+  ]
+}
