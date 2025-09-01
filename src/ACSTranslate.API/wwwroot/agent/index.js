@@ -1,6 +1,16 @@
 import { CallClient } from "@azure/communication-calling";
 import { AzureCommunicationTokenCredential } from '@azure/communication-common';
 
+const languages = {
+    'es': 'Spanish',
+    'ar': 'Arabic',
+    'fr': 'French',
+    'de': 'German',
+    'vi': 'Vietnamese',
+    'zh': 'Chinese'
+};
+const userLanguageSelectEnabled = true;
+const userLanguageSelectDefault = 'es';
 const callClient = new CallClient();
 let call;
 let callAgent;
@@ -11,7 +21,7 @@ let serverAppId;
 const callList = document.getElementById('callList');
 const transcriptionList = document.getElementById('transcriptionList');
 
-function connectCall(callId, button) {
+function connectCall(callId, button, userLanguage) {
     button.disabled = true;
     if (!serverAppId || !callAgent) {
         alert('Call agent not ready');
@@ -24,7 +34,8 @@ function connectCall(callId, button) {
     call = callAgent.startCall(
         [{ communicationUserId: serverAppId }],
         { customContext: { voipHeaders : [
-            { key: "callId", value: callId }
+            { key: "callId", value: callId },
+            { key: 'userLanguage', value: userLanguage }
         ]}}
     );
     const es = new EventSource(`/api/calls/${callId}/transcription`);
@@ -105,11 +116,28 @@ function upsertCallElement(call) {
     statusText.textContent = call.status;
     li.appendChild(statusText);
 
+    const userLanguageId = `language-${element_id}`;
+    if (userLanguageSelectEnabled)
+    {
+        const userLanguage = document.createElement('select');
+        userLanguage.id = userLanguageId;
+        for (const [value, label] of Object.entries(languages)) {
+            const option = document.createElement('option');
+            option.value = value;
+            option.textContent = label;
+            if (value === userLanguageSelectDefault) {
+                option.selected = true;
+            }
+            userLanguage.appendChild(option);
+        }
+        li.appendChild(userLanguage);
+    }
+
     const button = document.createElement('button');
     button.textContent = 'Connect';
     button.className = 'is-active';
     button.style.display = call.status !== 'Waiting' ? 'none' : 'block';
-    button.onclick = () => connectCall(call.id, button);
+    button.onclick = () => connectCall(call.id, button, document.getElementById(userLanguageId)?.value || null);
     li.appendChild(button);
 
     callList.appendChild(li);
