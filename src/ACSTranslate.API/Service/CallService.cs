@@ -53,8 +53,14 @@ public class CallService(
         return callModel;
     }
 
-    public async Task<CallViewModel> ConnectCallAsync(Guid callId, string incomingCallContext)
+    public async Task<CallViewModel> ConnectCallAsync(Guid callId, string incomingCallContext, TranslationConfig? userLanguageConfig)
     {
+        if (userLanguageConfig != null)
+        {
+            _logger.LogInformation("Overriding user language to {Language}", userLanguageConfig.UserLanguage);
+            await InternalUpdateCallUserLanguage(callId, userLanguageConfig);
+        }
+        
         var call = await SetCallToConnecting(callId);
 
         var callbackEndpoint = new Uri(_config.BaseUri, $"/api/calls/{call.Id}/log");
@@ -84,6 +90,21 @@ public class CallService(
         _logger.LogInformation("Setting call {CallId} from {OldStatus} to {NewStatus}", callId, call.Status, newStatus);
 
         call.Status = newStatus;
+        await db.SaveChangesAsync();
+
+        var callModel = new CallViewModel(call);
+        RaiseCallChangeEvent(callModel);
+        return callModel;
+    }
+
+    private async Task<CallViewModel> InternalUpdateCallUserLanguage(Guid callId, TranslationConfig? userLanguageConfig)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var call = await db.Calls.FindAsync(callId) ?? throw new KeyNotFoundException();
+
+        _logger.LogInformation("Setting call {CallId} user language to {Language}", callId, userLanguageConfig?.UserLanguage);
+
+        call.UserLanguage = userLanguageConfig?.UserLanguage;
         await db.SaveChangesAsync();
 
         var callModel = new CallViewModel(call);

@@ -62,7 +62,15 @@ class InboundCallHandler(
         {
             var callId = Guid.Parse(incomingCallData.customContext.voipHeaders["callId"]);
 
-            var call = await _callService.ConnectCallAsync(callId, incomingCallData.incomingCallContext);
+            // Check user language override settings
+            TranslationConfig? userLanguageConfig = null;
+            if (!incomingCallData.customContext.voipHeaders.TryGetValue("userLanguage", out string? userLanguageCode)
+                || string.IsNullOrWhiteSpace(userLanguageCode))
+            {
+                userLanguageConfig = TranslationConfig.GetConfig(userLanguageCode);
+            }
+
+            var call = await _callService.ConnectCallAsync(callId, incomingCallData.incomingCallContext, userLanguageConfig);
 
             _logger.LogInformation("Connecting call: {Call}", call);
         }
