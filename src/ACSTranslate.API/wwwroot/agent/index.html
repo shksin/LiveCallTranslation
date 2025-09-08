@@ -139,22 +139,23 @@
             });
 
             // Audio config buttons
-            const audioOptions = document.querySelectorAll(".audio-options input[type=checkbox]");
-            audioOptions.forEach((checkbox) => {
-                checkbox.addEventListener("change", (e) => {
-                    if (socket?.readyState === WebSocket.OPEN) {
-                        socket.send(JSON.stringify({
-                            type: "audioOptions",
-                            options: {
-                                UserOriginalAudio: document.getElementById("callerOrigChan").checked,
-                                UserTranslatedAudio: document.getElementById("callerTransChan").checked,
-                                AgentOriginalAudio: document.getElementById("agentOrigChan").checked,
-                                AgentTranslatedAudio: document.getElementById("agentTransChan").checked
-                            }
-                        }));
-                    }
-                });
-            });
+            const sendAudioOptionsUpdate = () => {
+                if (socket?.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({
+                        type: "audioOptions",
+                        options: {
+                            UserOriginalAudio: document.getElementById("callerOrigChan").checked,
+                            UserTranslatedAudio: document.getElementById("callerTransChan").checked,
+                            AgentOriginalAudio: document.getElementById("agentOrigChan").checked,
+                            AgentTranslatedAudio: document.getElementById("agentTransChan").checked
+                        }
+                    }));
+                }
+            };
+            document.getElementById("callerOrigChan").addEventListener("change", sendAudioOptionsUpdate);
+            document.getElementById("callerTransChan").addEventListener("change", sendAudioOptionsUpdate);
+            document.getElementById("agentOrigChan").addEventListener("change", sendAudioOptionsUpdate);
+            document.getElementById("agentTransChan").addEventListener("change", sendAudioOptionsUpdate);
 
             // Finally connect our socket
             const refresh = () => location.reload();

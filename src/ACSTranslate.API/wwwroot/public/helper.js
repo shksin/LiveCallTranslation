@@ -77,10 +77,11 @@ async function setupAudioWorklet(sampleRate = 16000, bufferCallback = null) {
     splitter.connect(audioContext.destination);
 
     // Set up a data buffer
-    const dataBuffer = bufferedArray(4800, bufferCallback);
+    const dataBuffer = bufferedArray(32 * 50, bufferCallback);
 
     // Hook up microphone to the audio worklet
     voiceAgentNode.port.onmessage = (event) => dataBuffer?.addData(event.data.buffer);
+    //voiceAgentNode.port.onmessage = (event) => bufferCallback?.(event.data.buffer);
     const recordMediaStreamSource = audioContext.createMediaStreamSource(stream);
     recordMediaStreamSource.connect(voiceAgentNode);
 

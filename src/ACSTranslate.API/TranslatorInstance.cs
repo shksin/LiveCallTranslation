@@ -162,14 +162,13 @@ public class TranslatorInstance : IDisposable
     {
         try
         {
-            _recognizer?.StopContinuousRecognitionAsync();
+            _recognizer?.StopContinuousRecognitionAsync().ContinueWith(_ => _recognizer.Dispose());
         }
         finally
         {
             _speechSynthesizer?.Dispose();
-            _recognizer?.Dispose();
             _inputStream?.Dispose();
-        }    
+        }
     }
     
     // Helpers

@@ -103,10 +103,16 @@ public class CallManager(
                 var json = await ws.ReceiveStringAsync(buffer, ct);
                 if (json == null) break;
 
-                _logger.LogInformation("Agent {AgentId} sent message: {Message}", agentId, json);
                 var request = JsonNode.Parse(json);
 
-                if (request?["type"]?.GetValue<string>() == "connect" &&
+                if (request?["type"]?.GetValue<string>() == "ping" ||
+                    request?["type"]?.GetValue<string>() == "disconnect" ||
+                    request?["type"]?.GetValue<string>() == "audio" ||
+                    request?["type"]?.GetValue<string>() == "audioOptions")
+                {
+                    // We can safely ignore these events!
+                }
+                else if (request?["type"]?.GetValue<string>() == "connect" &&
                     Guid.TryParse(request?["callId"]?.GetValue<string>(), out var callId))
                 {
                     _logger.LogInformation("Agent {AgentId} connecting to call {CallId}", agentId, callId);
@@ -214,25 +220,35 @@ public class CallManager(
         CallAudioOptions agentAudioOptions,
         CancellationToken ct)
     {
-        // We have 2 receive loops running in parallel, if either ends the call we end the other leg
         bool enableAudio = false;
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        Func<byte[], Task>? userReceiveCallback = null;
-        var userReceive = ReceiveLoopAsync(userWs, async (data) =>
+
+        // Audio mixing - TODO: Document, these magic numbers shouldn't be here!
+        DynamicMixer mixer = new(new(16000, 16, 1), 120, 50);
+        var mixerLoop = Task.Run(async () => await mixer.SendMixedAudioAsync(agentWs, cts.Token), cts.Token);
+        mixer.SetAudioOptions(agentAudioOptions);
+
+        // We have 2 receive loops running in parallel, if either ends the call we end the other leg
+        
+        Action<byte[]>? userReceiveCallback = null;
+        var userReceive = ReceiveLoopAsync(userWs, (data) =>
         {
             if (!enableAudio) return;
-            await (userReceiveCallback?.Invoke(data) ?? Task.CompletedTask);
-        }, cts.Token);
-        Func<byte[], Task>? agentReceiveCallback = null;
-        var agentReceive = ReceiveLoopAsync(agentWs, async (data) =>
+            mixer.AddUserOriginalAudio(data); // Audio mixer
+            userReceiveCallback?.Invoke(data);
+        }, null, cts.Token);
+        Action<byte[]>? agentReceiveCallback = null;
+        var agentReceive = ReceiveLoopAsync(agentWs, (data) =>
         {
             if (!enableAudio) return;
-            await (agentReceiveCallback?.Invoke(data) ?? Task.CompletedTask);
-        }, cts.Token);
+            mixer.AddAgentOriginalAudio(data); // Audio mixer
+            agentReceiveCallback?.Invoke(data);
+        }, mixer.SetAudioOptions,
+        cts.Token);
 
         // Tell our clients to both start sending audio so we are ready to go
-        await userWs.SendAsync(new { type = "enable" }, ct);
-        await agentWs.SendAsync(new { type = "enable" }, ct);
+        await userWs.SendAsync(new { type = "enable" }, cts.Token);
+        await agentWs.SendAsync(new { type = "enable" }, cts.Token);
 
         // Set up our 2 translators
         using var userToAgentTranslator = await TranslatorInstance.CreateAsync(
@@ -250,21 +266,14 @@ public class CallManager(
                 originalText,
                 translatedText,
                 isFinal
-            }, ct);
+            }, cts.Token);
         });
-        userToAgentTranslator.AttachSpeechOutput(async (data) =>
+        userToAgentTranslator.AttachSpeechOutput((data) =>
         {
-            await agentWs.SendAsync(new
-            {
-                type = "audio",
-                data = Convert.ToBase64String(data)
-            }, ct);
-        });
-        userReceiveCallback = (data) =>
-        {
-            userToAgentTranslator.SendData(data);
+            mixer.AddUserTranslatedAudio(data); // Audio mixer
             return Task.CompletedTask;
-        };
+        });
+        userReceiveCallback = userToAgentTranslator.SendData;
 
         using var agentToUserTranslator = await TranslatorInstance.CreateAsync(
             agentLanguage,
@@ -281,21 +290,18 @@ public class CallManager(
                 originalText,
                 translatedText,
                 isFinal
-            }, ct);
+            }, cts.Token);
         });
         agentToUserTranslator.AttachSpeechOutput(async (data) =>
         {
+            mixer.AddAgentTranslatedAudio(data); // Audio mixer
             await userWs.SendAsync(new
             {
                 type = "audio",
                 data = Convert.ToBase64String(data)
-            }, ct);
+            }, cts.Token);
         });
-        agentReceiveCallback = (data) =>
-        {
-            agentToUserTranslator.SendData(data);
-            return Task.CompletedTask;
-        };
+        agentReceiveCallback = agentToUserTranslator.SendData;
 
         // Send any welcome messages
         SendConnected(userLanguage, agentToUserTranslator, userWs);
@@ -327,7 +333,11 @@ public class CallManager(
         });
     });
 
-    private async Task ReceiveLoopAsync(WebSocket ws, Action<byte[]> audioCallback, CancellationToken ct)
+    private async Task ReceiveLoopAsync(
+        WebSocket ws,
+        Action<byte[]> audioCallback,
+        Action<CallAudioOptions>? audioOptionsCallback = null,
+        CancellationToken ct = default)
     {
         var buffer = new byte[64 * 1024];
         while (ws.State == WebSocketState.Open && !ct.IsCancellationRequested)
@@ -346,6 +356,17 @@ public class CallManager(
                 {
                     var audioData = Convert.FromBase64String(audioDataString);
                     audioCallback(audioData);
+                }
+            }
+            else if (requestType == "audioOptions")
+            {
+                if (audioOptionsCallback != null)
+                {
+                    var options = request?["options"]?.Deserialize<CallAudioOptions>();
+                    if (options != null)
+                    {
+                        audioOptionsCallback(options);
+                    }
                 }
             }
             else

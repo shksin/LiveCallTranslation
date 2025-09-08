@@ -1,11 +1,19 @@
 using System.Net.WebSockets;
 using System.Text;
+using System.Text.Encodings.Web;
+using System.Text.Json;
+using System.Text.Unicode;
 
 public static class WebsocketExtensions
 {
+    private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
+    {
+        Encoder = JavaScriptEncoder.Create(UnicodeRanges.BasicLatin, UnicodeRanges.MathematicalOperators),
+        WriteIndented = true
+    };
     public static async Task SendAsync<T>(this WebSocket ws, T obj, CancellationToken ct)
         => await ws.SendAsync(
-            new ArraySegment<byte>(System.Text.Encoding.UTF8.GetBytes(System.Text.Json.JsonSerializer.Serialize(obj))),
+            new ArraySegment<byte>(Encoding.UTF8.GetBytes(JsonSerializer.Serialize(obj, _jsonSerializerOptions))),
             WebSocketMessageType.Text,
             true,
             ct);
