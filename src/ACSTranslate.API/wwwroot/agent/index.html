@@ -1,70 +1,322 @@
-<html data-theme="light">
+<html>
 
 <head>
-    <title>Live Call Translation - Agent Interface</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
-    <style>
-        body {
-            font-family: 'Inter', sans-serif;
-            margin: 0;
-            padding: 0;
-        }
-        nav, main {
-            width:100%;
-        }
-
-        .native,
-        .translated {
-            display: block;
-        }
-
-        #transcriptionList>li {
-            margin-bottom: 10px;
-        }
-        #callList>li {
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-        h2 {
-            margin-bottom: 10px !important;
-            border-bottom: 1px solid #ddd;
-        }
-        .headContainer {
-            margin-bottom: 10px;
-            padding-bottom: 10px;
-            border-bottom: 1px solid #ddd;
-        }
-        .headContainer > h1 {
-            margin-top: 10px;
-            padding-top: 10px;
-        }
-    </style>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Agent Interface</title>
+    <link rel="stylesheet" href="/public/style.css">
 </head>
+
 <body>
-        <div class="container headContainer">
-            <h1 class="is-size-3">Live Call Translation - Agent Interface</h1>
-            <div class="panel-block">
-                <a class="is-size-7" href="/user/" target="_blank">Open User Interface</a>
+    <header>Real-Time Call Translation - Agent Interface
+        <button id="enableAudio" style="display: none; margin-left: auto;">Enable Audio</button>
+    </header>
+    <main>
+        <aside id="callsPane" aria-label="Inbound Calls">
+            <button id="disconnect" class="disconnect">Disconnect</button>
+            <h2>Inbound Calls</h2>
+            <div class="call-list" id="callList">
             </div>
-        </div>
-    <main class="">
-        <div class="container columns">
-        <aside class="menu column is-one-quarter">
-            <h2>Calls</h2>
-            <ul id="callList" class="menu-list">
-
-            </ul>
         </aside>
-        <div class="column">
-            <h2>Call Transcription</h2>
-            <ul id="transcriptionList">
+        <section id="centerPane">
+            <form id="configPanel" autocomplete="off">
+                <div class="field">
+                    <label for="callerLang">Caller Language</label>
+                    <select id="callerLang">
+                        <option value="loading">Loading...</option>
+                    </select>
+                </div>
+                <div class="field">
+                    <label for="agentLang">Agent Language</label>
+                    <select id="agentLang">
+                        <option value="loading">Loading...</option>
+                    </select>
+                </div>
 
-            </ul>
-        </div>
-    </div>
+                <fieldset class="audio-options">
+                    <legend>Audio Options</legend>
+                    <div class="field">
+                        <label for="callerOrigChan">Caller Original Audio</label>
+                        <input type="checkbox" id="callerOrigChan">
+                    </div>
+                    <div class="field">
+                        <label for="callerTransChan">Caller Translated Audio</label>
+                        <input type="checkbox" id="callerTransChan" checked>
+                    </div>
+                    <div class="field">
+                        <label for="agentOrigChan">Agent Original Audio</label>
+                        <input type="checkbox" id="agentOrigChan" disabled>
+                    </div>
+                    <div class="field">
+                        <label for="agentTransChan">Agent Translated Audio</label>
+                        <input type="checkbox" id="agentTransChan">
+                    </div>
+                </fieldset>
+            </form>
+            <div id="transcriptContainer" aria-label="Transcript Log">
+                <div id="transcriptHeader">
+                    <div>Time</div>
+                    <div>Speaker</div>
+                    <div>Agent Language</div>
+                    <div>Caller Language</div>
+                </div>
+                <div id="transcript">
+                    <div class="empty-hint" id="transcriptEmpty">
+                        No transcript yet. Connected conversation turns will appear here.</div>
+                </div>
+                <div class="status-bar" id="statusBar">
+                    <span id="status">Loading...</span>
+                </div>
+            </div>
+        </section>
     </main>
-    <script src="./main.js"></script>
+
+    <script src="/public/helper.js"></script>
+    <script>
+        (async () => {
+            const newTranscriptRow = (role) => {
+                const row = document.createElement("div");
+                row.className = "trans-row " + role;
+                row.style.display = "none";
+
+                const timeDiv = document.createElement("div");
+                timeDiv.className = "time";
+                const now = new Date();
+                timeDiv.innerText = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+                row.appendChild(timeDiv);
+
+                const roleDiv = document.createElement("div");
+                roleDiv.className = "role";
+                roleDiv.innerText = (role === "agent" ? "Agent" : "Caller");
+                row.appendChild(roleDiv);
+
+
+                const translatedDiv = document.createElement("div");
+                translatedDiv.className = "translated";
+                translatedDiv.innerText = "";
+                row.appendChild(translatedDiv);
+
+                const originalDiv = document.createElement("div");
+                originalDiv.className = "original";
+                originalDiv.innerText = "";
+                row.appendChild(originalDiv);
+
+                return row;
+            };
+
+
+
+            const statusText = document.getElementById("status");
+            let audioEnabled = false;
+            let socket = null;
+
+            // Configure audio
+            statusText.innerText = "Setting up audio...";
+            const sampleRate = 16000;
+            const voiceAgentNode = await setupAudioWorklet(sampleRate, (data) => {
+                if (audioEnabled && socket?.readyState === WebSocket.OPEN && data?.length > 0) {
+                    socket.send(JSON.stringify({
+                        type: "audio",
+                        data: btoa(String.fromCharCode(...data))
+                    }));
+                }
+            });
+
+            if (!voiceAgentNode) {
+                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page. (Details are in console)</p>";
+                return;
+            }
+
+            // Disconnect button with easy refresh
+            const disconnectButton = document.getElementById("disconnect");
+            disconnectButton.addEventListener("click", (e) => {
+                if (socket?.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify({ type: "disconnect" }));
+                }
+            });
+            disconnectButton.addEventListener("dblclick", (e) => {
+                refresh();
+            });
+
+            // Audio config buttons
+            const audioOptions = document.querySelectorAll(".audio-options input[type=checkbox]");
+            audioOptions.forEach((checkbox) => {
+                checkbox.addEventListener("change", (e) => {
+                    if (socket?.readyState === WebSocket.OPEN) {
+                        socket.send(JSON.stringify({
+                            type: "audioOptions",
+                            options: {
+                                UserOriginalAudio: document.getElementById("callerOrigChan").checked,
+                                UserTranslatedAudio: document.getElementById("callerTransChan").checked,
+                                AgentOriginalAudio: document.getElementById("agentOrigChan").checked,
+                                AgentTranslatedAudio: document.getElementById("agentTransChan").checked
+                            }
+                        }));
+                    }
+                });
+            });
+
+            // Finally connect our socket
+            const refresh = () => location.reload();
+            const authCode = new URLSearchParams(window.location.search).get("code");
+            statusText.innerText = "Connecting to server...";
+            socket = new WebSocket("/api/agent/ws?code=" + encodeURIComponent(authCode || ""));
+            socket.onclose = (event) => {
+                console.log("WebSocket closed:", event);
+                setTimeout(refresh, 1000);
+            };
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                socket.close();
+            };
+            socket.onopen = (event) => {
+                console.log("WebSocket opened:", event);
+                statusText.innerText = "Connected.";
+            };
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === "refresh") refresh();
+                else if (message.type === "ping") { }
+                else if (message.type === "enable") {
+                    audioEnabled = true;
+                    document.getElementById("transcript").innerHTML = "";
+                }
+                else if (message.type === "disconnect") {
+                    audioEnabled = false;
+                    console.log("Disconnected by server");
+                }
+                else if (message.type === "languages") {
+                    const fillLanguages = (id, languages, selected = "") => {
+                        //{en-US: 'English', de-DE: 'German', fr-FR: 'French', es-MX: 'Spanish (Mexico)', ar-SA: 'Arabic', …}
+                        const select = document.getElementById(id);
+                        const codes = Object.keys(languages);
+
+                        if (codes.length === 0) return;
+                        select.innerHTML = "";
+
+                        for (const code of codes) {
+                            const option = document.createElement("option");
+                            option.value = code;
+                            option.innerText = `${languages[code]}`;
+                            if (code === selected) option.selected = true;
+                            select.appendChild(option);
+                        }
+                    }
+                    // Populate language selectors
+                    fillLanguages("callerLang", message.languages, "es-MX");
+                    fillLanguages("agentLang", message.languages, "en-US");
+                }
+                else if (message.type === "transcription") {
+                    const transcript = document.getElementById("transcript");
+                    if (!transcript.querySelector(".agent") ||
+                        !transcript.querySelector(".user")) {
+                        transcript.innerHTML = "";
+                        transcript.appendChild(newTranscriptRow("agent"));
+                        transcript.appendChild(newTranscriptRow("user"));
+                    }
+
+                    const agentRows = transcript.querySelectorAll(".agent");
+                    const lastAgentRow = agentRows[agentRows.length - 1];
+                    const userRows = transcript.querySelectorAll(".user");
+                    const lastUserRow = userRows[userRows.length - 1];
+
+                    if (message.source === "agent") {
+                        lastAgentRow.style.display = null;
+                        // Quick fix to always show Agent language on left
+                        lastAgentRow.querySelector(".translated").innerText = message.originalText;
+                        lastAgentRow.querySelector(".original").innerText = message.translatedText;
+                        if (message.isFinal) {
+                            transcript.appendChild(newTranscriptRow("agent"));
+                        }
+                    } else if (message.source === "user") {
+                        lastUserRow.style.display = null;
+                        lastUserRow.querySelector(".original").innerText = message.originalText;
+                        lastUserRow.querySelector(".translated").innerText = message.translatedText;
+                        if (message.isFinal) {
+                            transcript.appendChild(newTranscriptRow("user"));
+                        }
+                    }
+                    transcript.scrollTop = transcript.scrollHeight;
+                }
+                else if (message.type == "update") {
+                    for (const callUpdate of (message.updates || [])) {
+                        const newCallState = callUpdate?.state?.toLowerCase();
+                        // Update calls
+                        const callBoxId = "call-" + callUpdate.id;
+                        const callMetaId = "callMeta-" + callUpdate.id;
+                        const callButtonId = "callButton-" + callUpdate.id;
+
+                        const callBox = document.getElementById(callBoxId);
+
+                        if (newCallState == "disconnected") {
+                            if (callBox) callBox.remove();
+                            continue;
+                        }
+
+                        if (!callBox) {
+                            const newCallBoxDiv = document.createElement('div');
+                            newCallBoxDiv.id = callBoxId;
+                            newCallBoxDiv.className = 'call-item';
+
+                            const newCallBoxTitleDiv = document.createElement('div');
+                            newCallBoxTitleDiv.className = 'call-id';
+                            newCallBoxTitleDiv.innerText = `Call #${callUpdate.id.substring(0, 8)}`;
+                            newCallBoxDiv.appendChild(newCallBoxTitleDiv);
+
+                            const newCallBoxMetaDiv = document.createElement('div');
+                            newCallBoxMetaDiv.className = 'call-meta';
+                            newCallBoxMetaDiv.id = callMetaId;
+                            newCallBoxDiv.appendChild(newCallBoxMetaDiv);
+
+                            const newCallBoxButton = document.createElement('button');
+                            newCallBoxButton.type = 'button';
+                            newCallBoxButton.id = callButtonId;
+                            newCallBoxButton.dataset.connect = callUpdate.id;
+                            newCallBoxButton.innerText = 'Connect';
+                            newCallBoxButton.onclick = (e) => {
+                                const callId = e.target?.dataset?.connect;
+                                e.target.innerText = "Connecting...";
+                                e.target.disabled = true;
+                                if (callId && socket?.readyState === WebSocket.OPEN) {
+                                    const userLanguage = document.getElementById("callerLang").value;
+                                    const agentLanguage = document.getElementById("agentLang").value;
+                                    socket.send(JSON.stringify({
+                                        type: "connect",
+                                        callId: callId,
+                                        options: {
+                                            UserLanguage: userLanguage,
+                                            AgentLanguage: agentLanguage,
+                                            AgentAudioOptions: {
+                                                UserOriginalAudio: document.getElementById("callerOrigChan").checked,
+                                                UserTranslatedAudio: document.getElementById("callerTransChan").checked,
+                                                AgentOriginalAudio: document.getElementById("agentOrigChan").checked,
+                                                AgentTranslatedAudio: document.getElementById("agentTransChan").checked
+                                            }
+                                        }
+                                    }));
+                                }
+                            };
+                            newCallBoxDiv.appendChild(newCallBoxButton);
+
+                            const callList = document.getElementById('callList');
+                            callList.appendChild(newCallBoxDiv);
+                        }
+
+                        const callMeta = document.getElementById(callMetaId);
+                        if (callMeta) callMeta.innerText = callUpdate?.state;
+
+                        const callButton = document.getElementById(callButtonId);
+                        if (callButton) callButton.style.display = (newCallState === "userconnected" ? 'block' : 'none');
+                    }
+                } else if (message.type === "audio") {
+                    // Play audio
+                    voiceAgentNode.port.postMessage(atobInt16(message.data));
+                } else {
+                    console.warn("Unknown message type:", message);
+                }
+            };
+        })();
+    </script>
 </body>
 
 </html>
