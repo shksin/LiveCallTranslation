@@ -7,6 +7,10 @@ A real-time multilingual communication capability between non-English-speaking c
 
 `User` <-> `Websocket` <-> `Speech Stream` <-> `Translate` <-> `Speech + Control Stream` <-> `Websocket` <-> `Agent`
 
+## Important Notes
+- Clicking the "Disconnect" button twice on the agent interface will refresh it if it becomes unresponsive.
+- The User interface will auto refresh on call end, or if the websocket connection is lost. You should expect to see it pop back up as available a few seconds after the call ends.
+
 ## Local Testing
 1. Install Azure CLI: [Install Azure CLI](https://docs.microsoft.com/en-us/cli/azure/install-azure-cli)
 2. Install .NET 9: [Download .NET 9](https://dotnet.microsoft.com/en-us/download/dotnet/9.0)
