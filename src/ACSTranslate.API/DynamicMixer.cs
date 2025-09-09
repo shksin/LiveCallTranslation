@@ -87,7 +87,6 @@ public class DynamicMixer
 
     public void SetAudioOptions(CallAudioOptions options)
     {
-        Console.WriteLine("Mixer update: " + options);
         _userOriginalVolume.Volume = options.UserOriginalAudio ? 0.8f : 0.0f;
         _userTranslatedVolume.Volume = options.UserTranslatedAudio ? 1.0f : 0.0f;
         _agentOriginalVolume.Volume = options.AgentOriginalAudio ? 0.5f : 0.0f;
