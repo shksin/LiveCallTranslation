@@ -52,14 +52,14 @@ app.MapGet("/api/user/ws", async (
         [FromServices] CallManager cm,
         HttpContext context
     )
-    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectUserAsync(new UserWebSocket(ws), ct))
+    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectUserAsync(new UserWebSocket(ws, context.RequestServices.GetRequiredService<ILogger<UserWebSocket>>()), ct))
 );
 app.MapGet("/api/agent/ws", async (
         [FromServices] WebSocketManager ws,
         [FromServices] CallManager cm,
         HttpContext context
     )
-    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectAgentAsync(new AgentWebSocket(ws), ct))
+    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectAgentAsync(new AgentWebSocket(ws, context.RequestServices.GetRequiredService<ILogger<AgentWebSocket>>()), ct))
 );
 app.MapGet("/", () => "Ok.");
 var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());

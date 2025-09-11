@@ -209,20 +209,52 @@ public class CallManager(
 
         // We have 2 receive loops running in parallel, if either ends the call we end the other leg
         Action<byte[]>? userReceiveCallback = null;
-        var userReceive = ReceiveLoopAsync(userWs, (data) =>
-        {
-            if (!enableAudio) return;
-            mixer.AddAudio(AudioChannels.UserOriginal, data);
-            userReceiveCallback?.Invoke(data);
-        }, null, cts.Token);
+        var userReceive = userWs.ReceiveLoopAsync(new Dictionary<string, Func<JsonNode, bool>>()
+            {
+                {"disconnect", (_) => false},
+                {"audio", (request) =>
+                    {
+                        if (!enableAudio) return true;
+                        var audioDataString = request?["data"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(audioDataString)) return true;
+                        var data = Convert.FromBase64String(audioDataString);
+                        mixer.AddAudio(AudioChannels.UserOriginal, data);
+                        userReceiveCallback?.Invoke(data);
+                        return true;
+                    }
+                }
+            },
+            cts.Token
+        );
         Action<byte[]>? agentReceiveCallback = null;
-        var agentReceive = ReceiveLoopAsync(agentWs, (data) =>
-        {
-            if (!enableAudio) return;
-            mixer.AddAudio(AudioChannels.AgentOriginal, data);
-            agentReceiveCallback?.Invoke(data);
-        }, options => SetAudioValuesFromOptions(mixer, options),
-        cts.Token);
+        var agentReceive = agentWs.ReceiveLoopAsync(
+            new Dictionary<string, Func<JsonNode, bool>>()
+            {
+                {"disconnect", (_) => false},
+                {"audio", (request) =>
+                    {
+                        if (!enableAudio) return true;
+                        var audioDataString = request?["data"]?.GetValue<string>();
+                        if (string.IsNullOrEmpty(audioDataString)) return true;
+                        var data = Convert.FromBase64String(audioDataString);
+                        mixer.AddAudio(AudioChannels.AgentOriginal, data);
+                        agentReceiveCallback?.Invoke(data);
+                        return true;
+                    }
+                },
+                {"audioOptions", (request) =>
+                    {
+                        var options = request?["options"]?.Deserialize<CallAudioOptions>();
+                        if (options != null)
+                        {
+                            SetAudioValuesFromOptions(mixer, options);
+                        }
+                        return true;
+                    }
+                },
+            },
+            cts.Token
+        );
 
         // Tell our clients to both start sending audio so we are ready to go
         await userWs.SendEnableAsync(cts.Token);
@@ -285,49 +317,6 @@ public class CallManager(
             => await ws.SendAudioAsync(data, CancellationToken.None)
         );
     });
-
-    private async Task ReceiveLoopAsync(
-        AudioWebSocket ws,
-        Action<byte[]> audioCallback,
-        Action<CallAudioOptions>? audioOptionsCallback = null,
-        CancellationToken ct = default)
-    {
-        var buffer = new byte[64 * 1024];
-        while (ws.Connected && !ct.IsCancellationRequested)
-        {
-            var json = await ws.ReceiveStringAsync(buffer, ct);
-            if (json == null) break;
-
-            var request = JsonNode.Parse(json);
-            var requestType = request?["type"]?.GetValue<string>();
-
-            if (requestType == "disconnect") break;
-            else if (requestType == "audio")
-            {
-                var audioDataString = request?["data"]?.GetValue<string>();
-                if (!string.IsNullOrEmpty(audioDataString))
-                {
-                    var audioData = Convert.FromBase64String(audioDataString);
-                    audioCallback(audioData);
-                }
-            }
-            else if (requestType == "audioOptions")
-            {
-                if (audioOptionsCallback != null)
-                {
-                    var options = request?["options"]?.Deserialize<CallAudioOptions>();
-                    if (options != null)
-                    {
-                        audioOptionsCallback(options);
-                    }
-                }
-            }
-            else
-            {
-                _logger.LogWarning("Received unknown message: {Message}", request?.ToJsonString());
-            }
-        }
-    }
 }
 public enum AudioChannels
 {

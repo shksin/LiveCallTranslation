@@ -3,11 +3,13 @@ using System.Net.WebSockets;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 using System.Text.Unicode;
 
 public class AudioWebSocket(
-    WebSocket _webSocket
+    WebSocket _webSocket,
+    ILogger _logger
 )
 {
     private static readonly JsonSerializerOptions _jsonSerializerOptions = new()
@@ -67,6 +69,31 @@ public class AudioWebSocket(
         return stringBuilder.ToString();
     }
 
+    public async Task ReceiveLoopAsync(Dictionary<string,Func<JsonNode, bool>> handlers, CancellationToken ct)
+    {
+        var buffer = new byte[64 * 1024];
+        while (Connected && !ct.IsCancellationRequested)
+        {
+            var json = await ReceiveStringAsync(buffer, ct);
+            if (json == null) break;
+
+            var request = JsonNode.Parse(json);
+            var requestType = request?["type"]?.GetValue<string>();
+
+            if (request != null && requestType != null && handlers.TryGetValue(requestType, out var handler))
+            {
+                if (!handler(request))
+                {
+                    break;
+                }
+            }
+            else
+            {
+                _logger.LogWarning("Received unknown message: {Message}", request?.ToJsonString());
+            }
+        }
+    }
+
     private record WebSocketMessage(
         [property: JsonPropertyName("type")]
         string Type
@@ -90,7 +117,7 @@ public class AudioWebSocket(
     }
 }
 
-public class AgentWebSocket(WebSocket ws) : AudioWebSocket(ws)
+public class AgentWebSocket(WebSocket ws, ILogger logger) : AudioWebSocket(ws, logger)
 {
     public Task SendEventUpdates(CallEventUpdate callUpdate, CancellationToken ct)
         => SendEventUpdates([callUpdate], ct);
@@ -120,7 +147,7 @@ public class AgentWebSocket(WebSocket ws) : AudioWebSocket(ws)
 }
 public class UserWebSocket : AudioWebSocket
 {
-    public UserWebSocket(WebSocket ws) : base(ws) { }
+    public UserWebSocket(WebSocket ws, ILogger logger) : base(ws, logger) { }
 
     public async Task SendRefreshAsync(CancellationToken ct)
         => await SendAsync(new { type = "refresh" }, ct);
