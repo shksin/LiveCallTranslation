@@ -179,6 +179,14 @@ public class CallManager(
         }
     }
 
+    private static void SetAudioValuesFromOptions(DynamicMixer<AudioChannels> mixer, CallAudioOptions options)
+    {
+        mixer.SetAudioOptions(AudioChannels.UserOriginal, options.UserOriginalAudio ? 0.8f : 0.0f);
+        mixer.SetAudioOptions(AudioChannels.UserTranslated, options.UserTranslatedAudio ? 1.0f : 0.0f);
+        mixer.SetAudioOptions(AudioChannels.AgentOriginal, options.AgentOriginalAudio ? 0.5f : 0.0f);
+        mixer.SetAudioOptions(AudioChannels.AgentTranslated, options.AgentTranslatedAudio ? 0.8f : 0.0f);
+    }
+
     private async Task RunCallAsync(
         UserWebSocket userWs,
         LanguageConfig userLanguage,
@@ -191,26 +199,29 @@ public class CallManager(
         var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
 
         // Audio mixing - TODO: Document, these magic numbers shouldn't be here!
-        DynamicMixer mixer = new(new(16000, 16, 1), 120, 50);
+        DynamicMixer<AudioChannels> mixer = new(new(16000, 16, 1), 120, 50);
         var mixerLoop = Task.Run(async () => await mixer.SendMixedAudioAsync(agentWs, cts.Token), cts.Token);
-        mixer.SetAudioOptions(agentAudioOptions);
+        SetAudioValuesFromOptions(mixer, agentAudioOptions);
+
+        // Watch the user original and agent original channels for latency and skip audio if needed
+        mixer.MonitorLatency(AudioChannels.UserOriginal);
+        mixer.MonitorLatency(AudioChannels.AgentOriginal);
 
         // We have 2 receive loops running in parallel, if either ends the call we end the other leg
-
         Action<byte[]>? userReceiveCallback = null;
         var userReceive = ReceiveLoopAsync(userWs, (data) =>
         {
             if (!enableAudio) return;
-            mixer.AddUserOriginalAudio(data); // Audio mixer
+            mixer.AddAudio(AudioChannels.UserOriginal, data);
             userReceiveCallback?.Invoke(data);
         }, null, cts.Token);
         Action<byte[]>? agentReceiveCallback = null;
         var agentReceive = ReceiveLoopAsync(agentWs, (data) =>
         {
             if (!enableAudio) return;
-            mixer.AddAgentOriginalAudio(data); // Audio mixer
+            mixer.AddAudio(AudioChannels.AgentOriginal, data);
             agentReceiveCallback?.Invoke(data);
-        }, mixer.SetAudioOptions,
+        }, options => SetAudioValuesFromOptions(mixer, options),
         cts.Token);
 
         // Tell our clients to both start sending audio so we are ready to go
@@ -229,7 +240,7 @@ public class CallManager(
         );
         userToAgentTranslator.AttachSpeechOutput((data) =>
         {
-            mixer.AddUserTranslatedAudio(data); // Audio mixer
+            mixer.AddAudio(AudioChannels.UserTranslated, data);
             return Task.CompletedTask;
         });
         userReceiveCallback = userToAgentTranslator.SendData;
@@ -245,7 +256,7 @@ public class CallManager(
         );
         agentToUserTranslator.AttachSpeechOutput(async (data) =>
         {
-            mixer.AddAgentTranslatedAudio(data); // Audio mixer
+            mixer.AddAudio(AudioChannels.AgentTranslated, data);
             await userWs.SendAudioAsync(data, cts.Token);
         });
         agentReceiveCallback = agentToUserTranslator.SendData;
@@ -317,4 +328,11 @@ public class CallManager(
             }
         }
     }
+}
+public enum AudioChannels
+{
+    UserOriginal,
+    UserTranslated,
+    AgentOriginal,
+    AgentTranslated
 }

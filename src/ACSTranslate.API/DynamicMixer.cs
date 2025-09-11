@@ -1,97 +1,49 @@
-using System.Net.WebSockets;
 using NAudio.Wave;
 using NAudio.Wave.SampleProviders;
 
-public class DynamicMixer
+public class DynamicMixer<T> where T : Enum
 {
-    private readonly BufferedWaveProvider _userOriginalAudioBuffer;
-    private readonly BufferedWaveProvider _userTranslatedAudioBuffer;
-    private readonly BufferedWaveProvider _agentOriginalAudioBuffer;
-    private readonly BufferedWaveProvider _agentTranslatedAudioBuffer;
-
-    private readonly VolumeSampleProvider _userOriginalVolume;
-    private readonly VolumeSampleProvider _userTranslatedVolume;
-    private readonly VolumeSampleProvider _agentOriginalVolume;
-    private readonly VolumeSampleProvider _agentTranslatedVolume;
-
+    private readonly Dictionary<T, BufferedWaveProvider> _audioBuffers = [];
+    private readonly Dictionary<T, VolumeSampleProvider> _volumeProviders = [];
+    private readonly Dictionary<T, bool> _monitorLatency = [];
     private readonly MixingSampleProvider _mixer;
     private readonly int _frameMs;
     private readonly WaveFormat _waveFormat;
+    private readonly int _maxMonitoredBufferMs;
 
-    public DynamicMixer(WaveFormat waveFormat, int bufferSeconds = 120, int frameMs = 50)
+    public DynamicMixer(WaveFormat waveFormat, int bufferSeconds = 120, int frameMs = 50, int maxMonitoredBufferMs = 200)
     {
-        _userOriginalAudioBuffer = new BufferedWaveProvider(waveFormat)
+        foreach (T key in Enum.GetValues(typeof(T)))
         {
-            DiscardOnBufferOverflow = true,
-            BufferLength = waveFormat.AverageBytesPerSecond * bufferSeconds
-        };
-        _userTranslatedAudioBuffer = new BufferedWaveProvider(waveFormat)
-        {
-            DiscardOnBufferOverflow = true,
-            BufferLength = waveFormat.AverageBytesPerSecond * bufferSeconds
-        };
-        _agentOriginalAudioBuffer = new BufferedWaveProvider(waveFormat)
-        {
-            DiscardOnBufferOverflow = true,
-            BufferLength = waveFormat.AverageBytesPerSecond * bufferSeconds
-        };
-        _agentTranslatedAudioBuffer = new BufferedWaveProvider(waveFormat)
-        {
-            DiscardOnBufferOverflow = true,
-            BufferLength = waveFormat.AverageBytesPerSecond * bufferSeconds
-        };
+            _audioBuffers[key] = new BufferedWaveProvider(waveFormat)
+            {
+                DiscardOnBufferOverflow = true,
+                BufferLength = waveFormat.AverageBytesPerSecond * bufferSeconds
+            };
+            _volumeProviders[key] = new VolumeSampleProvider(_audioBuffers[key].ToSampleProvider())
+            {
+                Volume = 0.0f
+            };
+        }
 
-        _userOriginalVolume = new VolumeSampleProvider(_userOriginalAudioBuffer.ToSampleProvider())
-        {
-            Volume = 0.0f
-        };
-        _userTranslatedVolume = new VolumeSampleProvider(_userTranslatedAudioBuffer.ToSampleProvider())
-        {
-            Volume = 1.0f
-        };
-        _agentOriginalVolume = new VolumeSampleProvider(_agentOriginalAudioBuffer.ToSampleProvider())
-        {
-            Volume = 0.0f
-        };
-        _agentTranslatedVolume = new VolumeSampleProvider(_agentTranslatedAudioBuffer.ToSampleProvider())
-        {
-            Volume = 0.0f
-        };
-
-        _mixer = new MixingSampleProvider(
-        [
-            _userOriginalVolume,
-            _userTranslatedVolume,
-            _agentOriginalVolume,
-            _agentTranslatedVolume
-        ])
+        _mixer = new MixingSampleProvider(_volumeProviders.Values)
         {
             ReadFully = true
         };
 
         _frameMs = frameMs;
+        _maxMonitoredBufferMs = maxMonitoredBufferMs;
         _waveFormat = waveFormat;
     }
 
-    public void AddUserOriginalAudio(byte[] data)
-        => _userOriginalAudioBuffer.AddSamples(data, 0, data.Length);
+    public void AddAudio(T key, byte[] data)
+        => _audioBuffers[key].AddSamples(data, 0, data.Length);
 
-    public void AddUserTranslatedAudio(byte[] data)
-        => _userTranslatedAudioBuffer.AddSamples(data, 0, data.Length);
+    public void SetAudioOptions(T key, float volume)
+        => _volumeProviders[key].Volume = Math.Clamp(volume, 0.0f, 1.0f);
 
-    public void AddAgentOriginalAudio(byte[] data)
-        => _agentOriginalAudioBuffer.AddSamples(data, 0, data.Length);
-
-    public void AddAgentTranslatedAudio(byte[] data)
-        => _agentTranslatedAudioBuffer.AddSamples(data, 0, data.Length);
-
-    public void SetAudioOptions(CallAudioOptions options)
-    {
-        _userOriginalVolume.Volume = options.UserOriginalAudio ? 0.8f : 0.0f;
-        _userTranslatedVolume.Volume = options.UserTranslatedAudio ? 1.0f : 0.0f;
-        _agentOriginalVolume.Volume = options.AgentOriginalAudio ? 0.5f : 0.0f;
-        _agentTranslatedVolume.Volume = options.AgentTranslatedAudio ? 0.8f : 0.0f;
-    }
+    public void MonitorLatency(T key)
+        => _monitorLatency[key] = true;
 
     public async Task SendMixedAudioAsync(AudioWebSocket ws, CancellationToken ct)
     {
@@ -101,12 +53,9 @@ public class DynamicMixer
         byte[] mixerBuffer = new byte[_waveFormat.AverageBytesPerSecond / (1000 / _frameMs)];
         while (!ct.IsCancellationRequested)
         {
-            // Only skip on the realtime buffers, not the translated ones, as they will have larger buffers
-            while (_userOriginalAudioBuffer.BufferedDuration.TotalMilliseconds > 200 ||
-                   _agentOriginalAudioBuffer.BufferedDuration.TotalMilliseconds > 200)
+            // Skip audio if any monitored buffer is too large
+            while (_monitorLatency.Keys.ToList().Select(k => _audioBuffers[k].BufferedDuration.TotalMilliseconds).Max() > _maxMonitoredBufferMs)
             {
-                Console.WriteLine($"{_userOriginalAudioBuffer.BufferedDuration.TotalMilliseconds}ms " +
-                    $"{_agentOriginalAudioBuffer.BufferedDuration.TotalMilliseconds}ms");
                 mixerOutput.Read(mixerBuffer, 0, mixerBuffer.Length);
             }
 
