@@ -93,7 +93,7 @@ public class DynamicMixer
         _agentTranslatedVolume.Volume = options.AgentTranslatedAudio ? 0.8f : 0.0f;
     }
 
-    public async Task SendMixedAudioAsync(WebSocket ws, CancellationToken ct)
+    public async Task SendMixedAudioAsync(AudioWebSocket ws, CancellationToken ct)
     {
         var mixerOutput = _mixer.ToWaveProvider16();
 
@@ -113,11 +113,7 @@ public class DynamicMixer
             int read = mixerOutput.Read(mixerBuffer, 0, mixerBuffer.Length);
             if (read > 0)
             {
-                await ws.SendAsync(new
-                {
-                    type = "audio",
-                    data = Convert.ToBase64String(mixerBuffer, 0, read)
-                }, ct);
+                await ws.SendAudioAsync(mixerBuffer, 0, read, ct);
             }
 
             try { await mixerTimer.WaitForNextTickAsync(ct); }
