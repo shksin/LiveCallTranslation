@@ -5,20 +5,169 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>User Interface</title>
     <link rel="stylesheet" href="/public/style.css">
+    <style>
+        .mode-selector {
+            margin: 20px auto;
+            max-width: 600px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .mode-selector h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+        }
+        .mode-options {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0;
+        }
+        .mode-option {
+            flex: 1;
+            padding: 15px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mode-option:hover {
+            border-color: #007bff;
+        }
+        .mode-option.selected {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+        .mode-option h3 {
+            margin: 0 0 8px 0;
+            font-size: 1.1em;
+        }
+        .mode-option p {
+            margin: 0;
+            font-size: 0.9em;
+            color: #666;
+        }
+        .acs-info {
+            margin-top: 15px;
+            padding: 12px;
+            background: #fff3cd;
+            border-radius: 4px;
+            display: none;
+        }
+        .acs-info.visible {
+            display: block;
+        }
+        .acs-info.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .acs-info.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        #connectBtn {
+            margin-top: 15px;
+            padding: 12px 30px;
+            font-size: 1em;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #connectBtn:hover {
+            background: #0056b3;
+        }
+        #connectBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 
 <body>
     <header>Real-Time Call Translation - User Dial-in</header>
     <button id="enableAudio" style="display: none;">Enable Audio</button>
-    <p id="status"></p>
+    
+    <div class="mode-selector" id="modeSelector">
+        <h2>Select Connection Mode</h2>
+        <div class="mode-options">
+            <div class="mode-option" id="modeDefault" onclick="selectMode('default')">
+                <h3>🌐 Default (Browser)</h3>
+                <p>Connect directly via browser. No phone required.</p>
+            </div>
+            <div class="mode-option" id="modeACS" onclick="selectMode('acs')">
+                <h3>📞 ACS (Phone)</h3>
+                <p>Call via phone number using Azure Communication Services.</p>
+            </div>
+        </div>
+        <div class="acs-info" id="acsInfo"></div>
+        <button id="connectBtn" onclick="connect()" disabled>Connect</button>
+    </div>
+    
+    <p id="status" style="display: none;"></p>
     <script src="/public/helper.js"></script>
     <script>
+        let selectedMode = null;
+        let acsConfig = null;
+        const authCode = new URLSearchParams(window.location.search).get("code");
+
+        // Check ACS availability on load
         (async () => {
-            const statusText = document.getElementById("status");
+            try {
+                const response = await fetch('/api/calls/acs/config');
+                acsConfig = await response.json();
+                console.log('ACS Config:', acsConfig);
+            } catch (error) {
+                console.error('Failed to fetch ACS config:', error);
+                acsConfig = { isConfigured: false };
+            }
+        })();
+
+        function selectMode(mode) {
+            selectedMode = mode;
+            document.getElementById('modeDefault').classList.remove('selected');
+            document.getElementById('modeACS').classList.remove('selected');
+            document.getElementById(mode === 'default' ? 'modeDefault' : 'modeACS').classList.add('selected');
+            
+            const acsInfo = document.getElementById('acsInfo');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            if (mode === 'acs') {
+                if (acsConfig?.isConfigured) {
+                    acsInfo.className = 'acs-info success visible';
+                    acsInfo.innerHTML = `<strong>✓ ACS Configured</strong><br>Phone Number: ${acsConfig.inboundNumber || 'Not specified'}`;
+                    connectBtn.disabled = false;
+                } else {
+                    acsInfo.className = 'acs-info error visible';
+                    acsInfo.innerHTML = '<strong>✗ ACS Not Configured</strong><br>Please configure ACS in appsettings.json';
+                    connectBtn.disabled = true;
+                }
+            } else {
+                acsInfo.classList.remove('visible');
+                connectBtn.disabled = false;
+            }
+        }
+
+        async function connect() {
+            if (!selectedMode) return;
+            
+            document.getElementById('modeSelector').style.display = 'none';
+            const statusText = document.getElementById('status');
+            statusText.style.display = 'block';
+            
+            if (selectedMode === 'default') {
+                await connectDefault();
+            } else {
+                await connectACS();
+            }
+        }
+
+        async function connectDefault() {
+            const statusText = document.getElementById('status');
             let audioEnabled = false;
             let socket = null;
 
-            // Configure audio
             statusText.innerText = "Setting up audio...";
             const sampleRate = 16000;
             const voiceAgentNode = await setupAudioWorklet(sampleRate, (data) => {
@@ -31,13 +180,11 @@
             });
 
             if (!voiceAgentNode) {
-                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page. (Details are in console)</p>";
+                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page.</p>";
                 return;
             }
 
-            // Finally connect our socket
             const refresh = () => location.reload();
-            const authCode = new URLSearchParams(window.location.search).get("code");
             statusText.innerText = "Connecting to server...";
             socket = new WebSocket("/api/user/ws?code=" + encodeURIComponent(authCode || ""));
             socket.onclose = (event) => {
@@ -57,17 +204,22 @@
                 if (message.type === "refresh" || message.type === "disconnect") refresh();
                 else if (message.type === "ping") {}
                 else if (message.type === "enable") {
-                    // Enable the microphone
                     audioEnabled = true;
                     statusText.innerText = "Speaking with agent...";
                 } else if (message.type === "audio") {
-                    // Play audio
                     voiceAgentNode.port.postMessage(atobInt16(message.data));
                 } else {
                     console.warn("Unknown message type:", message);
                 }
             };
-        })();
+        }
+
+        async function connectACS() {
+            const statusText = document.getElementById('status');
+            statusText.innerText = `ACS Mode: Call ${acsConfig.inboundNumber} from your phone to connect.`;
+            statusText.innerHTML += '<br><br><small>The agent will receive your call and translation will happen in real-time.</small>';
+            statusText.innerHTML += '<br><br><button onclick="location.reload()">Back to Mode Selection</button>';
+        }
     </script>
 </body>
 

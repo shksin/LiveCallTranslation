@@ -73,6 +73,54 @@
 
     <script src="/public/helper.js"></script>
     <script>
+        // Check for ACS waiting calls periodically
+        let acsCallCheckInterval = null;
+        const authCode = new URLSearchParams(window.location.search).get("code");
+        
+        async function checkACSCalls() {
+            try {
+                const response = await fetch('/api/calls/waiting?code=' + encodeURIComponent(authCode || ''));
+                if (response.ok) {
+                    const calls = await response.json();
+                    updateACSCallsList(calls);
+                }
+            } catch (error) {
+                console.error('Failed to fetch ACS calls:', error);
+            }
+        }
+        
+        function updateACSCallsList(calls) {
+            const callList = document.getElementById('callList');
+            const existingACSCalls = callList.querySelectorAll('.acs-call');
+            
+            // Remove old ACS calls
+            existingACSCalls.forEach(el => el.remove());
+            
+            // Add new ACS calls at the top
+            if (calls && calls.length > 0) {
+                calls.forEach(call => {
+                    const callDiv = document.createElement('div');
+                    callDiv.className = 'call-item acs-call';
+                    callDiv.innerHTML = `
+                        <div class="call-id">📞 ACS Call</div>
+                        <div class="call-meta">
+                            From: ${call.callerId}<br>
+                            Language: ${call.userLanguage}<br>
+                            Received: ${new Date(call.callReceived).toLocaleTimeString()}
+                        </div>
+                        <button type="button" onclick="alert('ACS call handling is automatic. The call will be routed when you connect.')">
+                            View Details
+                        </button>
+                    `;
+                    callList.insertBefore(callDiv, callList.firstChild);
+                });
+            }
+        }
+        
+        // Start checking for ACS calls
+        checkACSCalls();
+        acsCallCheckInterval = setInterval(checkACSCalls, 5000); // Check every 5 seconds
+        
         (async () => {
             const newTranscriptRow = (role) => {
                 const row = document.createElement("div");
