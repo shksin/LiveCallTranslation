@@ -112,18 +112,6 @@
         let acsConfig = null;
         const authCode = new URLSearchParams(window.location.search).get("code");
 
-        // Check ACS availability on load
-        (async () => {
-            try {
-                const response = await fetch('/api/calls/acs/config');
-                acsConfig = await response.json();
-                console.log('ACS Config:', acsConfig);
-            } catch (error) {
-                console.error('Failed to fetch ACS config:', error);
-                acsConfig = { isConfigured: false };
-            }
-        })();
-
         function selectMode(mode) {
             selectedMode = mode;
             document.getElementById('modeDefault').classList.remove('selected');

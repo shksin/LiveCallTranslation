@@ -1,5 +1,7 @@
 using Azure.Core;
 
+namespace ACSTranslate;
+
 public class CognitiveServicesAuth(
     TokenCredential _credential,
     AzureAISpeechConfig _config,

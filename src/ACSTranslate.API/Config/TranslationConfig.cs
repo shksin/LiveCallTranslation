@@ -22,34 +22,15 @@ public record LanguageConfig(
             ? null
             : _languages.FirstOrDefault(l => l.Code.Equals(code, StringComparison.OrdinalIgnoreCase))
             ?? _languages.FirstOrDefault(l => l.Code.Split('-')[0].Equals(code, StringComparison.OrdinalIgnoreCase));
-    private static readonly LanguageConfig[] _languages = [
+
+    //sort the lanuges alphabetically by Language
+        private static readonly LanguageConfig[] _languages = [
         new LanguageConfig(
             "English",
             "en-US",
             "en-AU-DarrenNeural",
             "Hi there, I'm an AI translator that will be assisting with the call today, you will hear both my voice and the agents voice throughout the conversation, please wait while we connect you with an agent.",
             "You are now connected."
-        ),
-        new LanguageConfig(
-            "German",
-            "de-DE",
-            "de-DE-ChristophNeural",
-            "Hallo, ich bin ein KI-Übersetzer, der heute bei dem Anruf helfen wird. Sie werden sowohl meine Stimme als auch die Stimme des Agenten während des Gesprächs hören. Bitte warten Sie, während wir Sie mit einem Agenten verbinden.",
-            "Sie sind jetzt verbunden."
-        ),
-        new LanguageConfig(
-            "French",
-            "fr-FR",
-            "fr-FR-HenriNeural",
-            "Bonjour, je suis un traducteur IA qui vous assistera lors de l'appel aujourd'hui. Vous entendrez à la fois ma voix et celle de l'agent tout au long de la conversation. Veuillez patienter pendant que nous vous connectons avec un agent.",
-            "Vous êtes maintenant connecté."
-        ),
-        new LanguageConfig(
-            "Spanish (Mexico)",
-            "es-MX",
-            "es-MX-JorgeNeural",
-            "Hola, soy un traductor de IA que asistirá en la llamada de hoy. Escucharás tanto mi voz como la voz del agente durante toda la conversación. Por favor, espera mientras te conectamos con un agente.",
-            "Ahora estás conectado."
         ),
         new LanguageConfig(
             "Arabic",
@@ -66,11 +47,25 @@ public record LanguageConfig(
             "您现在已连接"
         ),
         new LanguageConfig(
-            "Vietnamese",
-            "vi-VN",
-            "vi-VN-NamMinhNeural",
-            "Xin chào, tôi là một phiên dịch AI sẽ hỗ trợ cuộc gọi hôm nay. Bạn sẽ nghe thấy cả giọng của tôi và giọng của nhân viên trong suốt cuộc trò chuyện. Vui lòng chờ trong khi chúng tôi kết nối bạn với một nhân viên.",
-            "Bạn đã kết nối"
+            "Dutch",
+            "nl-NL",
+            "nl-NL-ColetteNeural",
+            "Hallo, ik ben een AI-vertaler die vandaag zal assisteren bij het gesprek. Je zult zowel mijn stem als die van de agent horen tijdens het hele gesprek. Wacht alstublieft terwijl we u verbinden met een agent.",
+            "Je bent nu verbonden."
+        ),        
+        new LanguageConfig(
+            "French",
+            "fr-FR",
+            "fr-FR-HenriNeural",
+            "Bonjour, je suis un traducteur IA qui vous assistera lors de l'appel aujourd'hui. Vous entendrez à la fois ma voix et celle de l'agent tout au long de la conversation. Veuillez patienter pendant que nous vous connectons avec un agent.",
+            "Vous êtes maintenant connecté."
+        ),
+        new LanguageConfig(
+            "German",
+            "de-DE",
+            "de-DE-ChristophNeural",
+            "Hallo, ich bin ein KI-Übersetzer, der heute bei dem Anruf helfen wird. Sie werden sowohl meine Stimme als auch die Stimme des Agenten während des Gesprächs hören. Bitte warten Sie, während wir Sie mit einem Agenten verbinden.",
+            "Sie sind jetzt verbunden."
         ),
         new LanguageConfig(
             "Hindi",
@@ -78,6 +73,13 @@ public record LanguageConfig(
             "hi-IN-SwaraNeural",
             "नमस्ते, मैं एक एआई अनुवादक हूँ जो आज कॉल में सहायता करेगा। आप पूरे संवाद के दौरान मेरी आवाज़ और एजेंट की आवाज़ दोनों सुनेंगे। कृपया प्रतीक्षा करें जब तक हम आपको एक एजेंट से जोड़ते हैं।",
             "आप अब जुड़े हुए हैं।"
+        ),
+        new LanguageConfig(
+            "Italian",
+            "it-IT",
+            "it-IT-ElsaNeural",
+            "Ciao, sono un traduttore AI che assisterà alla chiamata di oggi. Sentirai sia la mia voce che quella dell'agente durante tutta la conversazione. Attendi mentre ti connettiamo con un agente.",
+            "Sei ora connesso."
         ),
         new LanguageConfig(
             "Japanese",
@@ -94,13 +96,6 @@ public record LanguageConfig(
             "지금 연결되었습니다."
         ),
         new LanguageConfig(
-            "Italian",
-            "it-IT",
-            "it-IT-ElsaNeural",
-            "Ciao, sono un traduttore AI che assisterà alla chiamata di oggi. Sentirai sia la mia voce che quella dell'agente durante tutta la conversazione. Attendi mentre ti connettiamo con un agente.",
-            "Sei ora connesso."
-        ),
-        new LanguageConfig(
             "Portuguese (Brazil)",
             "pt-BR",
             "pt-BR-AntonioNeural",
@@ -115,11 +110,11 @@ public record LanguageConfig(
             "Вы теперь подключены."
         ),
         new LanguageConfig(
-            "Dutch",
-            "nl-NL",
-            "nl-NL-ColetteNeural",
-            "Hallo, ik ben een AI-vertaler die vandaag zal assisteren bij het gesprek. Je zult zowel mijn stem als die van de agent horen tijdens het hele gesprek. Wacht alstublieft terwijl we u verbinden met een agent.",
-            "Je bent nu verbonden."
+            "Spanish (Mexico)",
+            "es-MX",
+            "es-MX-JorgeNeural",
+            "Hola, soy un traductor de IA que asistirá en la llamada de hoy. Escucharás tanto mi voz como la voz del agente durante toda la conversación. Por favor, espera mientras te conectamos con un agente.",
+            "Ahora estás conectado."
         ),
         new LanguageConfig(
             "Swedish",
@@ -134,6 +129,13 @@ public record LanguageConfig(
             "tr-TR-EmelNeural",
             "Merhaba, bugün aramada size yardımcı olacak bir yapay zeka çevirmeniyim. Konuşma boyunca hem benim sesimi hem de temsilcinin sesini duyacaksınız. Sizi bir temsilciyle bağlarken lütfen bekleyin.",
             "Şimdi bağlısınız."
+        ),
+        new LanguageConfig(
+            "Vietnamese",
+            "vi-VN",
+            "vi-VN-NamMinhNeural",
+            "Xin chào, tôi là một phiên dịch AI sẽ hỗ trợ cuộc gọi hôm nay. Bạn sẽ nghe thấy cả giọng của tôi và giọng của nhân viên trong suốt cuộc trò chuyện. Vui lòng chờ trong khi chúng tôi kết nối bạn với một nhân viên.",
+            "Bạn đã kết nối"
         )
     ];
 }

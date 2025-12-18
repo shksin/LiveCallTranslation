@@ -8,6 +8,8 @@ namespace ACSTranslate;
 [ApiController]
 public class EventGridController : ControllerBase
 {
+    public const string EventGridEndpoint = "/api/eventgrid";
+    
     private readonly IEnumerable<IEventGridHandler> _handlers;
     private readonly ILogger<EventGridController> _logger;
 

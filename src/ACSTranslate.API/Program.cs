@@ -1,5 +1,6 @@
 using Azure.Core;
 using Azure.Identity;
+using Azure.ResourceManager;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ACSTranslate;
@@ -21,7 +22,13 @@ builder.Services.AddSingleton<TokenCredential>(context =>
     {
         options.TenantId = config.AzureTenantId;
     }
-    return new DefaultAzureCredential(options);
+   
+
+builder.Services.AddSingleton<ArmClient>(sp =>
+{
+    var credential = sp.GetRequiredService<TokenCredential>();
+    return new ArmClient(credential);
+}); return new DefaultAzureCredential(options);
 });
 
 // ACS Configuration
@@ -34,7 +41,13 @@ builder.Services.AddSingleton(sp =>
 builder.Services.AddSingleton(sp =>
 {
     var config = sp.GetRequiredService<Config>();
-    return config.Inbound ?? new InboundConfig();
+    return config.Inbound ?? new InboundConfig(null);
+});
+
+builder.Services.AddSingleton(sp =>
+{
+    var config = sp.GetRequiredService<Config>();
+    return config.EventGrid ?? new EventGridConfig(null);
 });
 
 // ACS Services
@@ -54,6 +67,7 @@ builder.Services.AddDbContextFactory<OrchestratorContext>((services, options) =>
 builder.Services.AddSingleton<CallService>();
 builder.Services.AddSingleton<ACSWebSocketHandler>();
 builder.Services.AddSingleton<InboundCallHandler>();
+builder.Services.AddSingleton<EventGridSubscriptionManager>();
 builder.Services.AddSingleton<IEnumerable<IEventGridHandler>>(services => 
     [services.GetRequiredService<InboundCallHandler>()]);
 
@@ -129,5 +143,14 @@ app.MapGet("/ws/acs/{callId:guid}", async (
 
 app.MapGet("/", () => "Ok.");
 var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());
+
+// Auto-configure EventGrid subscription after app starts
+_ = Task.Run(async () =>
+{
+    // Wait 5 seconds before trying to auto-configure the Event Grid subscription
+    // as we need the endpoint to be available to configure the subscription
+    await Task.Delay(5_000);
+    await app.TryAutoConfigureEventGridSubscriptionAsync();
+});
 
 app.Run();

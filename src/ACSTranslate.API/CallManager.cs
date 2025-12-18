@@ -6,6 +6,7 @@ using ACSTranslate;
 
 public class CallManager(
     CognitiveServicesAuth _cogAuth,
+    CallService _callService,
     ILogger<CallManager> _logger
 )
 {
@@ -117,7 +118,28 @@ public class CallManager(
                 {
                     _logger.LogInformation("Agent {AgentId} connecting to call {CallId}", agentId, callId);
 
-                    // First up we claim the call if it is available
+                    // Check if this is an ACS call from the database
+                    var acsCall = await _callService.GetCallAsync(callId);
+                    if (acsCall != null && acsCall.Status == CallStatus.Waiting)
+                    {
+                        _logger.LogInformation("Agent {AgentId} connecting to ACS call {CallId}", agentId, callId);
+                        
+                        // For ACS calls, we need to update the status and send a response
+                        // The actual audio connection happens through the /ws/acs/{callId} endpoint
+                        await _callService.SetCallStatusAsync(callId, CallStatus.Answered);
+                        
+                        await ws.SendAsync(new
+                        {
+                            type = "acsCallConnected",
+                            callId = callId.ToString(),
+                            message = "ACS call connected. Audio streaming handled separately."
+                        }, ct);
+                        
+                        _logger.LogInformation("ACS call {CallId} marked as answered", callId);
+                        continue;
+                    }
+
+                    // First up we claim the call if it is available (for non-ACS calls)
                     if (!_calls.TryGetValue(callId, out var call) || call.CallState != CallState.UserConnected || call.WebSocket == null)
                     {
                         _logger.LogWarning("Agent {AgentId} attempted to connect to invalid call {CallId}", agentId, callId);

@@ -1,7 +1,10 @@
+namespace ACSTranslate;
+
 public record Config (
     AzureAISpeechConfig AzureAISpeech,
     ACSConfig? ACS = null,
     InboundConfig? Inbound = null,
+    EventGridConfig? EventGrid = null,
     string? AzureTenantId = null,
     string? AuthCode = null
 );
@@ -16,13 +19,23 @@ public record ACSConfig(
 {
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(InboundNumber);
 };
-public record InboundConfig(
-    string? BaseUrl = null,
-    string? BaseWsUrl = null
-)
+public record InboundConfig(string? Hostname)
 {
-    public Uri BaseUri => new Uri(BaseUrl ?? "http://localhost:5000");
-    public Uri BaseWsUri => new Uri(BaseWsUrl ?? "ws://localhost:5000");
+    private string GetHost() {
+        var websiteHostname = Environment.GetEnvironmentVariable("WEBSITE_HOSTNAME");
+        if (!string.IsNullOrWhiteSpace(websiteHostname))
+        {
+            return websiteHostname;
+        }
+        if (!string.IsNullOrWhiteSpace(Hostname))
+        {
+            return Hostname;
+        }
+        return "localhost:5000";
+    }
+    public Uri BaseUri => new($"https://{GetHost()}");
+    public Uri BaseWsUri => new($"wss://{GetHost()}");
+    public Uri EventsUri => new(BaseUri, EventGridController.EventGridEndpoint);
 };
 public static class ConfigExtensions
 {
