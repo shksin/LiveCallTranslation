@@ -9,6 +9,7 @@
   <ItemGroup>
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
     <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.2.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.23.0" />
     <PackageReference Include="System.Threading.Tasks.Dataflow" Version="9.0.0" />
     <PackageReference Include="Azure.AI.Translation.Text" Version="1.0.0" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.41.1" />

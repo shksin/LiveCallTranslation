@@ -73,7 +73,7 @@ Added ACS configuration section:
 - Creates call records and answers incoming calls
 
 #### EventGridController.cs (`/Controllers/EventGridController.cs`)
-- API endpoint for Event Grid webhook: `/api/eventgrid`
+- API endpoint for Event Grid webhook: `/api/events`
 - Handles Event Grid subscription validation
 - Routes cloud events to appropriate handlers
 

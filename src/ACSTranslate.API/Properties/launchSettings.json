@@ -7,7 +7,8 @@
       "launchBrowser": true,
       "applicationUrl": "http://localhost:5058",
       "environmentVariables": {
-        "ASPNETCORE_ENVIRONMENT": "Development"
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "EventGrid__TopicResourceID": "/subscriptions/c6a4ffe5-6f74-4846-b4e1-57386c4b7935/resourceGroups/rg-live-call-translation-ebc/providers/Microsoft.EventGrid/systemTopics/demo-eg-acs-hf3zk4mzgfnto"
       }
     },
     "https": {

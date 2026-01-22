@@ -7,6 +7,9 @@ using ACSTranslate;
 
 var builder = WebApplication.CreateBuilder(args);
 
+// Add Application Insights
+builder.Services.AddApplicationInsightsTelemetry();
+
 builder.Services.AddControllers();
 builder.Services.AddConfig().MapConfigPart(x => x.AzureAISpeech);
 
@@ -22,13 +25,13 @@ builder.Services.AddSingleton<TokenCredential>(context =>
     {
         options.TenantId = config.AzureTenantId;
     }
-   
+    return new DefaultAzureCredential(options);
+});
 
 builder.Services.AddSingleton<ArmClient>(sp =>
 {
     var credential = sp.GetRequiredService<TokenCredential>();
     return new ArmClient(credential);
-}); return new DefaultAzureCredential(options);
 });
 
 // ACS Configuration
@@ -38,17 +41,8 @@ builder.Services.AddSingleton(sp =>
     return config.ACS ?? new ACSConfig();
 });
 
-builder.Services.AddSingleton(sp =>
-{
-    var config = sp.GetRequiredService<Config>();
-    return config.Inbound ?? new InboundConfig(null);
-});
-
-builder.Services.AddSingleton(sp =>
-{
-    var config = sp.GetRequiredService<Config>();
-    return config.EventGrid ?? new EventGridConfig(null);
-});
+builder.Services.BindConfiguration<InboundConfig>("Inbound");
+builder.Services.BindConfiguration<EventGridConfig>("EventGrid");
 
 // ACS Services
 builder.Services.AddSingleton<ACSService>(sp =>
@@ -81,7 +75,7 @@ app.Use(async (context, next) =>
     {
         var code = context.Request.Query["code"].FirstOrDefault();
         if (context.Request.Path.StartsWithSegments("/public") ||
-            context.Request.Path.StartsWithSegments("/api/eventgrid") ||
+            context.Request.Path.StartsWithSegments("/api/events") ||
             context.Request.Path.StartsWithSegments("/ws/acs") ||
             context.Request.Path.StartsWithSegments("/api/calls/acs/config"))
         {
@@ -102,6 +96,8 @@ app.Use(async (context, next) =>
     await next();
 });
 
+Console.WriteLine("=== APPLICATION STARTING - CONSOLE TEST ===");
+Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
 
 app.UseWebSockets();
 app.UseDefaultFiles();
@@ -145,12 +141,45 @@ app.MapGet("/", () => "Ok.");
 var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());
 
 // Auto-configure EventGrid subscription after app starts
-_ = Task.Run(async () =>
+var eventGridTask = Task.Run(async () =>
 {
-    // Wait 5 seconds before trying to auto-configure the Event Grid subscription
-    // as we need the endpoint to be available to configure the subscription
-    await Task.Delay(5_000);
-    await app.TryAutoConfigureEventGridSubscriptionAsync();
+    var logger = app.Services.GetRequiredService<ILogger<Program>>();
+    try
+    {
+        Console.WriteLine("[EventGrid] Auto-config task started");
+        logger.LogInformation("EventGrid subscription configuration task started. Waiting 5 seconds...");
+        
+        // Log all configuration for debugging
+        var inboundConfig = app.Services.GetService<InboundConfig>();
+        var eventGridConfig = app.Services.GetService<EventGridConfig>();
+        logger.LogInformation("Configuration check:");
+        logger.LogInformation("  InboundConfig: {HasConfig}", inboundConfig != null ? $"Hostname={inboundConfig.Hostname}, EventsUri={inboundConfig.EventsUri}" : "NULL");
+        logger.LogInformation("  EventGridConfig: {HasConfig}", eventGridConfig != null ? $"TopicResourceID={eventGridConfig.TopicResourceID}" : "NULL");
+        Console.WriteLine($"[EventGrid] InboundConfig={(inboundConfig != null ? inboundConfig.Hostname : "NULL")}, EventGridTopic={(eventGridConfig != null ? eventGridConfig.TopicResourceID : "NULL")}");
+        
+        // Wait 5 seconds before trying to auto-configure the Event Grid subscription
+        // as we need the endpoint to be available to configure the subscription
+        await Task.Delay(5_000);
+        logger.LogInformation("Calling TryAutoConfigureEventGridSubscriptionAsync...");
+        Console.WriteLine("[EventGrid] Calling TryAutoConfigureEventGridSubscriptionAsync");
+        await app.TryAutoConfigureEventGridSubscriptionAsync();
+        logger.LogInformation("EventGrid subscription configuration task completed.");
+        Console.WriteLine("[EventGrid] Auto-config task completed");
+    }
+    catch (Exception ex)
+    {
+        logger.LogError(ex, "EventGrid subscription configuration task failed: {Message}", ex.Message);
+        Console.WriteLine($"[EventGrid] Auto-config task failed: {ex.Message}");
+    }
 });
+
+// Log immediately before starting to verify app is running
+var startupLogger = app.Services.GetRequiredService<ILogger<Program>>();
+startupLogger.LogWarning("=== APPLICATION IS STARTING - LOGGING TEST ===");
+var testInbound = app.Services.GetService<InboundConfig>();
+var testEventGrid = app.Services.GetService<EventGridConfig>();
+startupLogger.LogWarning("Config loaded: Inbound={Inbound}, EventGrid={EventGrid}", 
+    testInbound != null ? $"YES (Hostname={testInbound.Hostname})" : "NO", 
+    testEventGrid != null ? $"YES (TopicResourceID={testEventGrid.TopicResourceID})" : "NO");
 
 app.Run();

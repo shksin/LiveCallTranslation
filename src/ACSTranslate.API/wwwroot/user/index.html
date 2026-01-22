@@ -97,7 +97,7 @@
                 <p>Connect directly via browser. No phone required.</p>
             </div>
             <div class="mode-option" id="modeACS" onclick="selectMode('acs')">
-                <h3>📞 ACS (Phone)</h3>
+                <h3>📞 Azure Communication Service (Phone)</h3>
                 <p>Call via phone number using Azure Communication Services.</p>
             </div>
         </div>
@@ -124,31 +124,29 @@
             if (mode === 'acs') {
                 if (acsConfig?.isConfigured) {
                     acsInfo.className = 'acs-info success visible';
-                    acsInfo.innerHTML = `<strong>✓ ACS Configured</strong><br>Phone Number: ${acsConfig.inboundNumber || 'Not specified'}`;
-                    connectBtn.disabled = false;
+                    acsInfo.innerHTML = `<strong>📞 Call Our Toll-Free Number</strong><br><span style="font-size: 1.3em; font-weight: bold;">${acsConfig.inboundNumber || 'Not specified'}</span><br><small>Translation will start automatically when an agent connects.</small>`;
+                    connectBtn.disabled = true;
+                    connectBtn.style.display = 'none';
                 } else {
                     acsInfo.className = 'acs-info error visible';
-                    acsInfo.innerHTML = '<strong>✗ ACS Not Configured</strong><br>Please configure ACS in appsettings.json';
+                    acsInfo.innerHTML = '<strong>✗ Azure Communication Service Not Configured</strong><br>Please configure ACS in appsettings.json';
                     connectBtn.disabled = true;
                 }
             } else {
                 acsInfo.classList.remove('visible');
                 connectBtn.disabled = false;
+                connectBtn.style.display = 'block';
             }
         }
 
         async function connect() {
-            if (!selectedMode) return;
+            if (!selectedMode || selectedMode !== 'default') return;
             
             document.getElementById('modeSelector').style.display = 'none';
             const statusText = document.getElementById('status');
             statusText.style.display = 'block';
             
-            if (selectedMode === 'default') {
-                await connectDefault();
-            } else {
-                await connectACS();
-            }
+            await connectDefault();
         }
 
         async function connectDefault() {
@@ -200,13 +198,6 @@
                     console.warn("Unknown message type:", message);
                 }
             };
-        }
-
-        async function connectACS() {
-            const statusText = document.getElementById('status');
-            statusText.innerText = `ACS Mode: Call ${acsConfig.inboundNumber} from your phone to connect.`;
-            statusText.innerHTML += '<br><br><small>The agent will receive your call and translation will happen in real-time.</small>';
-            statusText.innerHTML += '<br><br><button onclick="location.reload()">Back to Mode Selection</button>';
         }
     </script>
 </body>

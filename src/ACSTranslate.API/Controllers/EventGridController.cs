@@ -1,71 +1,57 @@
-using System.Text.Json;
 using Azure.Messaging;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ACSTranslate;
 
-[Route("api/eventgrid")]
-[ApiController]
-public class EventGridController : ControllerBase
+[Route(EventGridEndpoint)]
+[Consumes("application/json")]
+[Produces("application/json")]
+public class EventGridController(
+    IEnumerable<IEventGridHandler> _handlers,
+    ILogger<EventGridController> _logger
+) : ControllerBase
 {
-    public const string EventGridEndpoint = "/api/eventgrid";
-    
-    private readonly IEnumerable<IEventGridHandler> _handlers;
-    private readonly ILogger<EventGridController> _logger;
+    internal const string EventGridEndpoint = "/api/events";
 
-    public EventGridController(
-        IEnumerable<IEventGridHandler> handlers,
-        ILogger<EventGridController> logger)
+    [HttpOptions]
+    public ActionResult EndpointValidation()
     {
-        _handlers = handlers;
-        _logger = logger;
+        var webhookRequest = WebHookRequest.FromHeaders(Request);
+        var webhookResponse = webhookRequest.ToResponse() with
+        {
+            WebHookAllowedRate = "*"
+        };
+        webhookResponse.AppendToHeaders(Response);
+        _logger.LogInformation("Webhook validation response: {Response}", webhookResponse);
+        return Ok();
     }
 
     [HttpPost]
-    [HttpOptions]
-    public async Task<IActionResult> HandleEvent()
+    public async Task<ActionResult> ReceiveEvent()
     {
-        // Handle Event Grid validation
-        if (Request.Headers.TryGetValue("aeg-event-type", out var eventType) && eventType == "SubscriptionValidation")
-        {
-            using var reader = new StreamReader(Request.Body);
-            var body = await reader.ReadToEndAsync();
-            var events = JsonSerializer.Deserialize<JsonElement[]>(body);
-            
-            if (events != null && events.Length > 0)
-            {
-                var validationCode = events[0].GetProperty("data").GetProperty("validationCode").GetString();
-                return Ok(new { validationResponse = validationCode });
-            }
-        }
-
-        // Handle Cloud Events
         try
         {
-            using var reader = new StreamReader(Request.Body);
-            var body = await reader.ReadToEndAsync();
-            var cloudEvents = CloudEvent.ParseMany(BinaryData.FromString(body));
+            var requestData = await BinaryData.FromStreamAsync(Request.Body);
+            var events = CloudEvent.ParseMany(requestData);
+            var tasks = events?.SelectMany(x => GetHandlers(x.Type).Select(y => y.HandleEventAsync(x))).ToArray();
             
-            foreach (var cloudEvent in cloudEvents)
+            _logger.LogInformation("Processing {Count} tasks for {EventCount} events", tasks?.Length, events?.Length);
+            
+            if (tasks == null || tasks.Length == 0)
             {
-                var handler = _handlers.FirstOrDefault(h => 
-                    h.EventTypes.Contains(cloudEvent.Type, StringComparer.OrdinalIgnoreCase));
-                
-                if (handler != null)
-                {
-                    await handler.HandleEventAsync(cloudEvent);
-                }
-                else
-                {
-                    _logger.LogInformation("No handler for event type: {EventType}", cloudEvent.Type);
-                }
+                return BadRequest("No events found");
             }
+            
+            await Task.WhenAll(tasks);
+            return Ok();
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "Error processing Event Grid event");
+            _logger.LogError(ex, "Error processing event");
+            return StatusCode(503, ex.Message);
         }
-
-        return Ok();
     }
+
+    private IEnumerable<IEventGridHandler> GetHandlers(string eventType)
+        => _handlers.Where(x => x.EventTypes.Contains(eventType, StringComparer.OrdinalIgnoreCase));
 }
