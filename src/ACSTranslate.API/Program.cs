@@ -4,6 +4,7 @@ using Azure.ResourceManager;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ACSTranslate;
+using ACSTranslate.Translation;
 
 var builder = WebApplication.CreateBuilder(args);
 
@@ -16,6 +17,59 @@ builder.Services.AddConfig().MapConfigPart(x => x.AzureAISpeech);
 builder.Services.AddSingleton<WebSocketManager>();
 builder.Services.AddSingleton<CallManager>();
 builder.Services.AddSingleton<CognitiveServicesAuth>();
+
+// Register translator factories — both AISpeech and VoiceLive (if configured)
+builder.Services.AddSingleton<TranslatorFactoryProvider>(sp =>
+{
+    var config = sp.GetRequiredService<Config>();
+    var logger = sp.GetRequiredService<ILogger<Program>>();
+    
+    var provider = new TranslatorFactoryProvider(config.Translator);
+    
+    // Always register AISpeech
+    provider.Register(CreateAISpeechFactory(sp, logger));
+    
+    // Register VoiceLive if configured
+    var openAIConfig = config.AzureOpenAI ?? new AzureOpenAIConfig();
+    if (openAIConfig.IsConfigured)
+    {
+        provider.Register(CreateVoiceLiveFactory(sp, config, logger));
+    }
+    
+    logger.LogInformation("Translator default: {Mode}, available: {Modes}", 
+        config.Translator, string.Join(", ", provider.AvailableModes));
+    
+    return provider;
+});
+builder.Services.AddSingleton<ITranslatorFactory>(sp => sp.GetRequiredService<TranslatorFactoryProvider>().GetFactory());
+
+static ITranslatorFactory CreateAISpeechFactory(IServiceProvider sp, ILogger logger)
+{
+    logger.LogInformation("Using AI Speech translator (3-stage: STT → Translate → TTS)");
+    var cogAuth = sp.GetRequiredService<CognitiveServicesAuth>();
+    return new AISpeechTranslatorFactory(cogAuth);
+}
+
+static ITranslatorFactory CreateVoiceLiveFactory(IServiceProvider sp, Config config, ILogger logger)
+{
+    var openAIConfig = config.AzureOpenAI ?? new AzureOpenAIConfig();
+    if (!openAIConfig.IsConfigured)
+    {
+        logger.LogWarning("Voice Live mode selected but AzureOpenAI not configured. Falling back to AI Speech.");
+        return CreateAISpeechFactory(sp, logger);
+    }
+    
+    logger.LogInformation("Using Voice Live WebSocket translator (direct API, echo cancellation, noise reduction)");
+    logger.LogInformation("  Azure Speech Voices: {UseAzureSpeechVoices}", openAIConfig.UseAzureSpeechVoices);
+    logger.LogInformation("  Telephony Resampling: {UseTelephonyResampling}", openAIConfig.UseTelephonyResampling);
+    
+    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
+    return new VoiceLiveWebSocketTranslatorFactory(
+        openAIConfig, 
+        loggerFactory,
+        openAIConfig.UseTelephonyResampling,
+        openAIConfig.UseAzureSpeechVoices);
+}
 
 builder.Services.AddSingleton<TokenCredential>(context =>
 {
@@ -59,6 +113,7 @@ builder.Services.AddDbContextFactory<OrchestratorContext>((services, options) =>
 });
 
 builder.Services.AddSingleton<CallService>();
+builder.Services.AddSingleton<ACSCallBridgeManager>();
 builder.Services.AddSingleton<ACSWebSocketHandler>();
 builder.Services.AddSingleton<InboundCallHandler>();
 builder.Services.AddSingleton<EventGridSubscriptionManager>();
@@ -77,9 +132,10 @@ app.Use(async (context, next) =>
         if (context.Request.Path.StartsWithSegments("/public") ||
             context.Request.Path.StartsWithSegments("/api/events") ||
             context.Request.Path.StartsWithSegments("/ws/acs") ||
-            context.Request.Path.StartsWithSegments("/api/calls/acs/config"))
+            context.Request.Path.StartsWithSegments("/api/calls/acs/config") ||
+            context.Request.Path.StartsWithSegments("/api/simulator"))
         {
-            // Allow public files, event grid webhooks, ACS websockets, and ACS config
+            // Allow public files, event grid webhooks, ACS websockets, ACS config, and simulator
         }
         else if (string.IsNullOrEmpty(code) || !code.Equals(authCode, StringComparison.Ordinal))
         {

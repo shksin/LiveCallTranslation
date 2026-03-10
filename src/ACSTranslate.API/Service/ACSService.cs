@@ -45,22 +45,71 @@ public class ACSService
         return tokenResponse.Value;
     }
 
-    public async Task AnswerCallAsync(string incomingCallContext, Uri callbackEndpoint)
+    public async Task<string> AnswerCallAsync(string incomingCallContext, Uri callbackEndpoint, Uri? mediaStreamingWebSocketUri = null)
     {
         if (_callClient == null) throw new InvalidOperationException("ACS not configured");
         
-        // Answer the call with basic options
-        var answerCallResult = await _callClient.AnswerCallAsync(
-            new AnswerCallOptions(incomingCallContext, callbackEndpoint)
-        );
+        var answerOptions = new AnswerCallOptions(incomingCallContext, callbackEndpoint);
         
+        // Configure media streaming if WebSocket URI is provided
+        if (mediaStreamingWebSocketUri != null)
+        {
+            var mediaStreamingOptions = new MediaStreamingOptions(
+                MediaStreamingAudioChannel.Unmixed
+            )
+            {
+                TransportUri = mediaStreamingWebSocketUri,
+                EnableBidirectional = true,
+                AudioFormat = AudioFormat.Pcm16KMono,
+                StartMediaStreaming = true
+            };
+            answerOptions.MediaStreamingOptions = mediaStreamingOptions;
+            _logger.LogInformation("Configured media streaming to: {WebSocketUri}", mediaStreamingWebSocketUri);
+        }
+        
+        var answerCallResult = await _callClient.AnswerCallAsync(answerOptions);
+        
+        var callConnectionId = answerCallResult.Value.CallConnection.CallConnectionId;
         _logger.LogInformation("Answered call with context: {Context}, CallConnectionId: {CallConnectionId}", 
-            incomingCallContext, answerCallResult.Value.CallConnection.CallConnectionId);
+            incomingCallContext, callConnectionId);
+        
+        return callConnectionId;
+    }
+
+    public async Task PlayTextToCallerAsync(string callConnectionId, string text, string voiceName)
+    {
+        if (_callClient == null) throw new InvalidOperationException("ACS not configured");
+        
+        var callConnection = _callClient.GetCallConnection(callConnectionId);
+        var callMedia = callConnection.GetCallMedia();
+        
+        var playSource = new TextSource(text)
+        {
+            VoiceName = voiceName
+        };
+        
+        await callMedia.PlayToAllAsync(playSource);
+        _logger.LogInformation("Playing text to caller on call {CallConnectionId}", callConnectionId);
+    }
+
+    public async Task StartMediaStreamingAsync(string callConnectionId)
+    {
+        if (_callClient == null) throw new InvalidOperationException("ACS not configured");
+        
+        var callConnection = _callClient.GetCallConnection(callConnectionId);
+        var callMedia = callConnection.GetCallMedia();
+        
+        await callMedia.StartMediaStreamingAsync();
+        _logger.LogInformation("Started media streaming for call {CallConnectionId}", callConnectionId);
     }
 
     public bool MatchesInboundNumber(string rawId)
     {
         if (string.IsNullOrWhiteSpace(_config.InboundNumber)) return false;
+        
+        // Handle wildcard - accept all calls
+        if (_config.InboundNumber.Trim() == "*") return true;
+        
         var formattedNumber = $"4:{System.Text.RegularExpressions.Regex.Replace(_config.InboundNumber, @"[^0-9+]", string.Empty).Trim()}";
         return formattedNumber.Equals(rawId, StringComparison.OrdinalIgnoreCase);
     }

@@ -42,9 +42,14 @@ public class CallService
         db.Calls.Add(call);
         await db.SaveChangesAsync();
 
-        // Answer the call
+        // Answer the call with media streaming configuration
         var callbackEndpoint = new Uri(_config.BaseUri, $"/api/calls/{call.Id}/callback");
-        await _acsService.AnswerCallAsync(incomingCallContext, callbackEndpoint);
+        var webSocketUri = new Uri(_config.BaseUri.ToString().Replace("https://", "wss://").Replace("http://", "ws://") + $"/ws/acs/{call.Id}");
+        var callConnectionId = await _acsService.AnswerCallAsync(incomingCallContext, callbackEndpoint, webSocketUri);
+        
+        // Store the call connection ID
+        call.CallConnectionId = callConnectionId;
+        await db.SaveChangesAsync();
 
         await SetCallStatusAsync(call.Id, CallStatus.Waiting);
         

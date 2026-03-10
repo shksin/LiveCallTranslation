@@ -39,6 +39,33 @@ public class CallsController : ControllerBase
         using var reader = new StreamReader(Request.Body);
         var body = await reader.ReadToEndAsync();
         _logger.LogInformation("Call {CallId} callback: {Body}", callId, body);
+
+        // Parse ACS callback events to detect call disconnection
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var elements = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray()
+                : SingleEnumerable(doc.RootElement);
+
+            foreach (var evt in elements)
+            {
+                if (evt.TryGetProperty("type", out var typeProp))
+                {
+                    var eventType = typeProp.GetString();
+                    if (eventType == "Microsoft.Communication.CallDisconnected")
+                    {
+                        _logger.LogInformation("Call {CallId} disconnected via callback", callId);
+                        await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse callback body for call {CallId}", callId);
+        }
+
         return Ok();
     }
 
@@ -74,5 +101,10 @@ public class CallsController : ControllerBase
             _logger.LogError(ex, "Failed to get ACS token");
             return StatusCode(500, new { error = "Failed to get ACS token" });
         }
+    }
+
+    private static IEnumerable<System.Text.Json.JsonElement> SingleEnumerable(System.Text.Json.JsonElement element)
+    {
+        yield return element;
     }
 }

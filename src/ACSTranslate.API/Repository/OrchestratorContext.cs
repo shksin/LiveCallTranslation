@@ -20,6 +20,7 @@ public class Call
     public DateTimeOffset CallReceived { get; set; }
     public string UserLanguage { get; set; } = "en-US";
     public string? IncomingCallContext { get; set; }
+    public string? CallConnectionId { get; set; }
 }
 
 public enum CallStatus

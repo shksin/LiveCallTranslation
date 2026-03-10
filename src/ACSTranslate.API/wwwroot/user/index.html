@@ -8,7 +8,7 @@
     <style>
         .mode-selector {
             margin: 20px auto;
-            max-width: 600px;
+            max-width: 900px;
             padding: 20px;
             background: #f5f5f5;
             border-radius: 8px;
@@ -16,14 +16,17 @@
         .mode-selector h2 {
             margin-top: 0;
             font-size: 1.2em;
+            color: #333;
         }
         .mode-options {
             display: flex;
             gap: 15px;
             margin: 15px 0;
+            flex-wrap: wrap;
         }
         .mode-option {
             flex: 1;
+            min-width: 200px;
             padding: 15px;
             background: white;
             border: 2px solid #ddd;
@@ -41,11 +44,12 @@
         .mode-option h3 {
             margin: 0 0 8px 0;
             font-size: 1.1em;
+            color: #222;
         }
         .mode-option p {
             margin: 0;
             font-size: 0.9em;
-            color: #666;
+            color: #555;
         }
         .acs-info {
             margin-top: 15px;
@@ -97,11 +101,12 @@
                 <p>Connect directly via browser. No phone required.</p>
             </div>
             <div class="mode-option" id="modeACS" onclick="selectMode('acs')">
-                <h3>📞 Azure Communication Service (Phone)</h3>
-                <p>Call via phone number using Azure Communication Services.</p>
+                <h3>📞 ACS (Phone)</h3>
+                <p>Call via Azure Communication Services phone number.</p>
             </div>
         </div>
         <div class="acs-info" id="acsInfo"></div>
+        
         <button id="connectBtn" onclick="connect()" disabled>Connect</button>
     </div>
     
@@ -109,33 +114,28 @@
     <script src="/public/helper.js"></script>
     <script>
         let selectedMode = null;
-        let acsConfig = null;
         const authCode = new URLSearchParams(window.location.search).get("code");
 
         function selectMode(mode) {
             selectedMode = mode;
             document.getElementById('modeDefault').classList.remove('selected');
             document.getElementById('modeACS').classList.remove('selected');
-            document.getElementById(mode === 'default' ? 'modeDefault' : 'modeACS').classList.add('selected');
+            document.getElementById(mode === 'acs' ? 'modeACS' : 'modeDefault').classList.add('selected');
             
             const acsInfo = document.getElementById('acsInfo');
             const connectBtn = document.getElementById('connectBtn');
             
+            // Reset panels
+            acsInfo.classList.remove('visible');
+            connectBtn.style.display = 'block';
+            connectBtn.disabled = true;
+
             if (mode === 'acs') {
-                if (acsConfig?.isConfigured) {
-                    acsInfo.className = 'acs-info success visible';
-                    acsInfo.innerHTML = `<strong>📞 Call Our Toll-Free Number</strong><br><span style="font-size: 1.3em; font-weight: bold;">${acsConfig.inboundNumber || 'Not specified'}</span><br><small>Translation will start automatically when an agent connects.</small>`;
-                    connectBtn.disabled = true;
-                    connectBtn.style.display = 'none';
-                } else {
-                    acsInfo.className = 'acs-info error visible';
-                    acsInfo.innerHTML = '<strong>✗ Azure Communication Service Not Configured</strong><br>Please configure ACS in appsettings.json';
-                    connectBtn.disabled = true;
-                }
+                acsInfo.className = 'acs-info success visible';
+                acsInfo.innerHTML = '<strong>📞 Speak to an agent by calling</strong><br><span style="font-size: 1.5em; font-weight: bold;">+61-SUPPORT-CONTACT</span>';
+                connectBtn.style.display = 'none';
             } else {
-                acsInfo.classList.remove('visible');
                 connectBtn.disabled = false;
-                connectBtn.style.display = 'block';
             }
         }
 
@@ -199,6 +199,8 @@
                 }
             };
         }
+
+        selectMode('default');
     </script>
 </body>
 

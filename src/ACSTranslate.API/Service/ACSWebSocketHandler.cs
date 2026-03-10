@@ -1,5 +1,4 @@
 using System;
-using System.Collections.Generic;
 using System.Net.WebSockets;
 using System.Text;
 using System.Text.Json;
@@ -9,19 +8,25 @@ using Microsoft.Extensions.Logging;
 
 namespace ACSTranslate;
 
+/// <summary>
+/// Handles the ACS media streaming WebSocket connection.
+/// Acts as a relay: pushes caller audio into the ACSCallBridge,
+/// and reads translated agent audio from the bridge to send back to ACS.
+/// Translation is handled by CallManager when the agent connects.
+/// </summary>
 public class ACSWebSocketHandler
 {
     private readonly CallService _callService;
-    private readonly CognitiveServicesAuth _cogAuth;
+    private readonly ACSCallBridgeManager _bridgeManager;
     private readonly ILogger<ACSWebSocketHandler> _logger;
 
     public ACSWebSocketHandler(
         CallService callService,
-        CognitiveServicesAuth cogAuth,
+        ACSCallBridgeManager bridgeManager,
         ILogger<ACSWebSocketHandler> logger)
     {
         _callService = callService;
-        _cogAuth = cogAuth;
+        _bridgeManager = bridgeManager;
         _logger = logger;
     }
 
@@ -37,94 +42,72 @@ public class ACSWebSocketHandler
 
         _logger.LogInformation("ACS WebSocket connection established for call {CallId}", callId);
 
-        // Get language configuration
-        var userLanguage = LanguageConfig.GetLanguageConfig(call.UserLanguage);
-        var agentLanguage = LanguageConfig.GetLanguageConfig("en-US"); // Default agent language
-
-        if (userLanguage == null || agentLanguage == null)
-        {
-            _logger.LogError("Invalid language configuration for call {CallId}", callId);
-            await webSocket.CloseAsync(WebSocketCloseStatus.InvalidPayloadData, "Invalid language", cancellationToken);
-            return;
-        }
-
-        // Create bidirectional translator
-        var translator = await TranslatorInstance.CreateAsync(userLanguage, agentLanguage, _cogAuth);
-        translator.AttachDebugLogging(_logger);
+        var bridge = _bridgeManager.GetOrCreate(callId);
+        bridge.SetACSWebSocket(webSocket);
 
         var buffer = new byte[64 * 1024];
-        var outputBuffer = new List<byte>();
 
         try
         {
-            while (webSocket.State == WebSocketState.Open && !cancellationToken.IsCancellationRequested)
+            using var linkedCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, bridge.DisconnectToken);
+            var ct = linkedCts.Token;
+
+            while (webSocket.State == WebSocketState.Open && !ct.IsCancellationRequested)
             {
-                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), cancellationToken);
-                
+                var result = await webSocket.ReceiveAsync(new ArraySegment<byte>(buffer), ct);
+
                 if (result.MessageType == WebSocketMessageType.Close)
-                {
                     break;
-                }
 
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
                     var json = Encoding.UTF8.GetString(buffer, 0, result.Count);
-                    await ProcessACSMessageAsync(json, translator, webSocket, cancellationToken);
+                    ProcessACSMessage(json, bridge);
                 }
             }
         }
+        catch (OperationCanceledException) { }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error handling ACS WebSocket for call {CallId}", callId);
         }
         finally
         {
-            translator.Dispose();
+            bridge.SignalDisconnect();
             await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
+            _bridgeManager.Remove(callId);
             _logger.LogInformation("ACS WebSocket connection closed for call {CallId}", callId);
         }
     }
 
-    private async Task ProcessACSMessageAsync(string json, TranslatorInstance translator, WebSocket webSocket, CancellationToken cancellationToken)
+    private int _audioPacketCount = 0;
+
+    private void ProcessACSMessage(string json, ACSCallBridge bridge)
     {
         try
         {
             var message = JsonSerializer.Deserialize<ACSStreamingMessage>(json);
-            
             if (message?.kind == "AudioData" && message.audioData?.data != null)
             {
                 var audioBytes = Convert.FromBase64String(message.audioData.data);
-                translator.SendData(audioBytes);
-                
-                // Set up speech output to send back to ACS
-                translator.AttachSpeechOutput(async (translatedAudio) =>
+                if (audioBytes.Length > 0)
                 {
-                    var response = new
+                    bridge.PushCallerAudio(audioBytes);
+                    _audioPacketCount++;
+                    if (_audioPacketCount % 100 == 1)
                     {
-                        kind = "AudioData",
-                        audioData = new
-                        {
-                            data = Convert.ToBase64String(translatedAudio)
-                        }
-                    };
-                    
-                    var responseJson = JsonSerializer.Serialize(response);
-                    var responseBytes = Encoding.UTF8.GetBytes(responseJson);
-                    
-                    if (webSocket.State == WebSocketState.Open)
-                    {
-                        await webSocket.SendAsync(
-                            new ArraySegment<byte>(responseBytes),
-                            WebSocketMessageType.Text,
-                            true,
-                            cancellationToken);
+                        _logger.LogInformation("ACS audio packets received so far: {Count}, last size: {Size} bytes", _audioPacketCount, audioBytes.Length);
                     }
-                });
+                }
+            }
+            else if (message?.kind == "AudioMetadata")
+            {
+                _logger.LogInformation("ACS AudioMetadata received: {Json}", json);
             }
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "Failed to process ACS message: {Json}", json);
+            _logger.LogWarning(ex, "Failed to process ACS message");
         }
     }
 

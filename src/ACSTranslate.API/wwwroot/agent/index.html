@@ -33,6 +33,18 @@
                     </select>
                 </div>
 
+                <div class="field" id="translatorModeField" style="display:none">
+                    <label>Translator</label>
+                    <input type="hidden" id="translatorMode" value="">
+                    <div class="toggle-switch" id="translatorToggle">
+                        <span class="toggle-label toggle-left" id="toggleLabelLeft">AISpeech</span>
+                        <div class="toggle-track" id="toggleTrack">
+                            <div class="toggle-thumb" id="toggleThumb"></div>
+                        </div>
+                        <span class="toggle-label toggle-right" id="toggleLabelRight">VoiceLive</span>
+                    </div>
+                </div>
+
                 <fieldset class="audio-options">
                     <legend>Audio Options</legend>
                     <div class="field">
@@ -74,8 +86,8 @@
     <script src="/public/helper.js"></script>
     <script>
         // Check for ACS waiting calls periodically
-        let acsCallCheckInterval = null;
         const authCode = new URLSearchParams(window.location.search).get("code");
+        let socket = null; // Declare socket in outer scope so ACS handlers can access it
         
         async function checkACSCalls() {
             try {
@@ -93,12 +105,16 @@
             const callList = document.getElementById('callList');
             const existingACSCalls = callList.querySelectorAll('.acs-call');
             
-            // Remove old ACS calls
-            existingACSCalls.forEach(el => el.remove());
+            // Remove old ACS calls that are NOT currently ongoing
+            existingACSCalls.forEach(el => {
+                if (el.dataset.ongoing === 'true') return; // keep ongoing calls
+                el.remove();
+            });
             
-            // Add new ACS calls at the top
+            // Add new ACS calls at the top (skip if already shown as ongoing)
             if (calls && calls.length > 0) {
                 calls.forEach(call => {
+                    if (document.getElementById('call-' + call.id)) return; // already in list
                     const callDiv = document.createElement('div');
                     callDiv.className = 'call-item acs-call';
                     callDiv.id = 'call-' + call.id;
@@ -130,6 +146,7 @@
                                 options: {
                                     UserLanguage: userLanguage,
                                     AgentLanguage: agentLanguage,
+                                    TranslatorMode: document.getElementById("translatorMode").value || null,
                                     AgentAudioOptions: {
                                         UserOriginalAudio: document.getElementById("callerOrigChan").checked,
                                         UserTranslatedAudio: document.getElementById("callerTransChan").checked,
@@ -148,7 +165,7 @@
         
         // Start checking for ACS calls
         checkACSCalls();
-        acsCallCheckInterval = setInterval(checkACSCalls, 5000); // Check every 5 seconds
+        setInterval(checkACSCalls, 5000); // Check every 5 seconds
         
         (async () => {
             const newTranscriptRow = (role) => {
@@ -185,7 +202,7 @@
 
             const statusText = document.getElementById("status");
             let audioEnabled = false;
-            let socket = null;
+            // socket is now declared in outer scope
 
             // Configure audio
             statusText.innerText = "Setting up audio...";
@@ -284,6 +301,35 @@
                     fillLanguages("callerLang", message.languages, "es-MX");
                     fillLanguages("agentLang", message.languages, "en-US");
                 }
+                else if (message.type === "translatorModes") {
+                    const field = document.getElementById("translatorModeField");
+                    const hiddenInput = document.getElementById("translatorMode");
+                    const track = document.getElementById("toggleTrack");
+                    const thumb = document.getElementById("toggleThumb");
+                    const labelLeft = document.getElementById("toggleLabelLeft");
+                    const labelRight = document.getElementById("toggleLabelRight");
+
+                    if (message.modes && message.modes.length > 1) {
+                        labelLeft.textContent = message.modes[0];
+                        labelRight.textContent = message.modes[1];
+                        const isRight = message.defaultMode === message.modes[1];
+                        hiddenInput.value = message.defaultMode;
+                        thumb.classList.toggle("active", isRight);
+                        labelLeft.classList.toggle("selected", !isRight);
+                        labelRight.classList.toggle("selected", isRight);
+
+                        track.onclick = () => {
+                            const nowRight = thumb.classList.toggle("active");
+                            hiddenInput.value = nowRight ? message.modes[1] : message.modes[0];
+                            labelLeft.classList.toggle("selected", !nowRight);
+                            labelRight.classList.toggle("selected", nowRight);
+                        };
+                        field.style.display = "";
+                    } else {
+                        hiddenInput.value = (message.modes && message.modes[0]) || "";
+                        field.style.display = "none";
+                    }
+                }
                 else if (message.type === "transcription") {
                     const transcript = document.getElementById("transcript");
                     if (!transcript.querySelector(".agent") ||
@@ -364,6 +410,7 @@
                                         options: {
                                             UserLanguage: userLanguage,
                                             AgentLanguage: agentLanguage,
+                                            TranslatorMode: document.getElementById("translatorMode").value || null,
                                             AgentAudioOptions: {
                                                 UserOriginalAudio: document.getElementById("callerOrigChan").checked,
                                                 UserTranslatedAudio: document.getElementById("callerTransChan").checked,
@@ -390,11 +437,27 @@
                     // Play audio
                     voiceAgentNode.port.postMessage(atobInt16(message.data));
                 } else if (message.type === "acsCallConnected") {
-                    // ACS call connected - remove from list and show notification
+                    // ACS call connected — mark in UI as ongoing and enable audio
+                    audioEnabled = true;
+                    document.getElementById("transcript").innerHTML = "";
+                    const callBox = document.getElementById("call-" + message.callId);
+                    if (callBox) {
+                        callBox.dataset.ongoing = 'true';
+                        callBox.classList.add('ongoing');
+                        const btn = callBox.querySelector('.acs-connect-btn');
+                        if (btn) { btn.innerText = "Ongoing"; btn.disabled = true; btn.classList.add('ongoing-btn'); }
+                        const meta = callBox.querySelector('.call-meta');
+                        if (meta) { meta.innerHTML += '<br><strong>Status: Ongoing</strong>'; }
+                    }
+                    statusText.innerText = "ACS call connected — translating...";
+                    console.log("ACS call connected:", message.callId);
+                } else if (message.type === "acsCallDisconnected") {
+                    // ACS call ended
+                    audioEnabled = false;
                     const callBox = document.getElementById("call-" + message.callId);
                     if (callBox) callBox.remove();
-                    statusText.innerText = "ACS call connected. Audio handled by ACS service.";
-                    console.log("ACS call connected:", message.callId);
+                    statusText.innerText = "ACS call ended.";
+                    console.log("ACS call disconnected:", message.callId);
                 } else {
                     console.warn("Unknown message type:", message);
                 }

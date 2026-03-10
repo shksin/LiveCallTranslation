@@ -3,10 +3,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks.Dataflow;
 using ACSTranslate;
+using ACSTranslate.Translation;
 
 public class CallManager(
-    CognitiveServicesAuth _cogAuth,
+    TranslatorFactoryProvider _translatorProvider,
     CallService _callService,
+    ACSCallBridgeManager _bridgeManager,
     ILogger<CallManager> _logger
 )
 {
@@ -89,6 +91,14 @@ public class CallManager(
                 languages = LanguageConfig.ListLanguages()
             }, ct);
 
+            // Send available translator modes
+            await ws.SendAsync(new
+            {
+                type = "translatorModes",
+                modes = _translatorProvider.AvailableModes,
+                defaultMode = _translatorProvider.DefaultMode
+            }, ct);
+
             // First up, configure subscriptions to call events
             var callEventUpdater = Task.Run(async () => await CallEventsLoop(ws, ct), ct);
 
@@ -124,18 +134,62 @@ public class CallManager(
                     {
                         _logger.LogInformation("Agent {AgentId} connecting to ACS call {CallId}", agentId, callId);
                         
-                        // For ACS calls, we need to update the status and send a response
-                        // The actual audio connection happens through the /ws/acs/{callId} endpoint
+                        // Parse call options
+                        CallOptions? callOptions = null;
+                        try
+                        {
+                            var optionsNode = request?["options"];
+                            if (optionsNode is not null)
+                            {
+                                callOptions = optionsNode.Deserialize<CallOptions>();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to deserialize call options for ACS call {CallId}", callId);
+                        }
+
+                        var userLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.UserLanguage ?? acsCall.UserLanguage);
+                        var agentLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.AgentLanguage ?? "en-US");
+                        var agentAudioOptions = callOptions?.AgentAudioOptions ?? new CallAudioOptions(false, true, false, false);
+                        var translatorFactory = _translatorProvider.GetFactory(callOptions?.TranslatorMode);
+                        _logger.LogInformation("ACS call {CallId} using translator: {Mode}", callId, translatorFactory.Mode);
+
+                        if (userLanguageConfig == null || agentLanguageConfig == null)
+                        {
+                            await ws.SendAsync(new { type = "error", message = "Invalid language options" }, ct);
+                            await SendAllCallStatus(ws, ct);
+                            continue;
+                        }
+
                         await _callService.SetCallStatusAsync(callId, CallStatus.Answered);
+                        
+                        // Media streaming is already configured and started during AnswerCallAsync
+                        // in CallService.CreateCallAsync — do NOT call StartMediaStreamingAsync again
+                        // as it will reset the ACS WebSocket connection and disconnect the bridge.
                         
                         await ws.SendAsync(new
                         {
                             type = "acsCallConnected",
-                            callId = callId.ToString(),
-                            message = "ACS call connected. Audio streaming handled separately."
+                            callId = callId.ToString()
                         }, ct);
-                        
-                        _logger.LogInformation("ACS call {CallId} marked as answered", callId);
+
+                        // Run the ACS call translation pipeline (blocks until call ends)
+                        try
+                        {
+                            await RunACSCallAsync(callId, ws, userLanguageConfig, agentLanguageConfig, agentAudioOptions, translatorFactory, ct);
+                        }
+                        catch (Exception e)
+                        {
+                            _logger.LogError(e, "Error during ACS call {CallId}", callId);
+                        }
+                        finally
+                        {
+                            await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
+                            _bridgeManager.Remove(callId);
+                            _logger.LogInformation("Agent {AgentId} ended ACS call: {CallId}", agentId, callId);
+                            await ws.BestEffortSendAsync(new { type = "acsCallDisconnected", callId = callId.ToString() }, ct);
+                        }
                         continue;
                     }
 
@@ -178,6 +232,8 @@ public class CallManager(
                         var userLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.UserLanguage);
                         var agentLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.AgentLanguage);
                         var agentAudioOptions = callOptions?.AgentAudioOptions ?? new CallAudioOptions(false, true, false, false);
+                        var translatorFactory = _translatorProvider.GetFactory(callOptions?.TranslatorMode);
+                        _logger.LogInformation("Call {CallId} using translator: {Mode}", callId, translatorFactory.Mode);
 
                         if (userLanguageConfig == null || agentLanguageConfig == null)
                         {
@@ -204,6 +260,7 @@ public class CallManager(
                                 ws,
                                 agentLanguageConfig,
                                 agentAudioOptions,
+                                translatorFactory,
                                 ct
                             );
                         }
@@ -240,6 +297,7 @@ public class CallManager(
         WebSocket agentWs,
         LanguageConfig agentLanguage,
         CallAudioOptions agentAudioOptions,
+        ITranslatorFactory translatorFactory,
         CancellationToken ct)
     {
         bool enableAudio = false;
@@ -272,11 +330,10 @@ public class CallManager(
         await userWs.SendAsync(new { type = "enable" }, cts.Token);
         await agentWs.SendAsync(new { type = "enable" }, cts.Token);
 
-        // Set up our 2 translators
-        using var userToAgentTranslator = await TranslatorInstance.CreateAsync(
+        // Set up our 2 translators (using configured translation mode: AISpeech or VoiceLive)
+        using var userToAgentTranslator = await translatorFactory.CreateAsync(
             userLanguage,
-            agentLanguage,
-            _cogAuth
+            agentLanguage
         );
         userToAgentTranslator.AttachDebugLogging(_logger);
         userToAgentTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
@@ -297,10 +354,9 @@ public class CallManager(
         });
         userReceiveCallback = userToAgentTranslator.SendData;
 
-        using var agentToUserTranslator = await TranslatorInstance.CreateAsync(
+        using var agentToUserTranslator = await translatorFactory.CreateAsync(
             agentLanguage,
-            userLanguage,
-            _cogAuth
+            userLanguage
         );
         agentToUserTranslator.AttachDebugLogging(_logger);
         agentToUserTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
@@ -341,8 +397,132 @@ public class CallManager(
         await agentWs.BestEffortSendAsync(new { type = "disconnect" }, ct);
     }
 
+    /// <summary>
+    /// Runs a full translation pipeline for an ACS call, bridging audio between the
+    /// ACS caller (via ACSCallBridge) and the agent WebSocket.
+    /// Mirrors RunCallAsync but reads caller audio from the bridge channel instead of a WebSocket.
+    /// </summary>
+    private async Task RunACSCallAsync(
+        Guid callId,
+        WebSocket agentWs,
+        LanguageConfig userLanguage,
+        LanguageConfig agentLanguage,
+        CallAudioOptions agentAudioOptions,
+        ITranslatorFactory translatorFactory,
+        CancellationToken ct)
+    {
+        // Wait for the ACS WebSocket to establish the bridge (may not be ready instantly)
+        ACSCallBridge? bridge = null;
+        for (int i = 0; i < 50; i++) // up to 5 seconds
+        {
+            if (_bridgeManager.TryGet(callId, out bridge) && bridge != null)
+                break;
+            await Task.Delay(100, ct);
+        }
+        if (bridge == null)
+        {
+            _logger.LogWarning("No ACS bridge found for call {CallId} after waiting", callId);
+            return;
+        }
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, bridge.DisconnectToken);
+
+        // Audio mixing for the agent — same as non-ACS calls
+        DynamicMixer mixer = new(new(16000, 16, 1), 120, 50);
+        var mixerLoop = Task.Run(async () => await mixer.SendMixedAudioAsync(agentWs, cts.Token), cts.Token);
+        mixer.SetAudioOptions(agentAudioOptions);
+
+        // Set up translators
+        using var userToAgentTranslator = await translatorFactory.CreateAsync(userLanguage, agentLanguage);
+        userToAgentTranslator.AttachDebugLogging(_logger);
+        userToAgentTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
+        {
+            await agentWs.SendAsync(new
+            {
+                type = "transcription",
+                source = "user",
+                originalText,
+                translatedText,
+                isFinal
+            }, cts.Token);
+        });
+        userToAgentTranslator.AttachSpeechOutput((data) =>
+        {
+            mixer.AddUserTranslatedAudio(data);
+            return Task.CompletedTask;
+        });
+
+        using var agentToUserTranslator = await translatorFactory.CreateAsync(agentLanguage, userLanguage);
+        agentToUserTranslator.AttachDebugLogging(_logger);
+        agentToUserTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
+        {
+            await agentWs.SendAsync(new
+            {
+                type = "transcription",
+                source = "agent",
+                originalText,
+                translatedText,
+                isFinal
+            }, cts.Token);
+        });
+        agentToUserTranslator.AttachSpeechOutput(async (data) =>
+        {
+            mixer.AddAgentTranslatedAudio(data);
+            await bridge.SendToCallerAsync(data, cts.Token);
+        });
+
+        // Tell the agent to start sending audio
+        await agentWs.SendAsync(new { type = "enable" }, cts.Token);
+
+        // Send welcome message to caller via the speech pipeline
+        SendConnected(userLanguage, agentToUserTranslator, bridge, cts.Token);
+
+        // Task 1: Read caller audio from bridge → feed to user-to-agent translator + mixer
+        var callerAudioTask = Task.Run(async () =>
+        {
+            int callerPackets = 0;
+            try
+            {
+                await foreach (var audio in bridge.CallerAudioReader.ReadAllAsync(cts.Token))
+                {
+                    mixer.AddUserOriginalAudio(audio);
+                    userToAgentTranslator.SendData(audio);
+                    callerPackets++;
+                    if (callerPackets % 100 == 1)
+                    {
+                        _logger.LogInformation("Caller audio packets fed to translator: {Count}, size: {Size}", callerPackets, audio.Length);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            _logger.LogInformation("Caller audio task ended after {Count} packets", callerPackets);
+        }, cts.Token);
+
+        // Task 2: Receive agent audio from WebSocket → feed to agent-to-user translator + mixer
+        var agentReceiveTask = ReceiveLoopAsync(agentWs, (data) =>
+        {
+            mixer.AddAgentOriginalAudio(data);
+            agentToUserTranslator.SendData(data);
+        }, mixer.SetAudioOptions, cts.Token);
+
+        // Wait for either side to end
+        await Task.WhenAny(callerAudioTask, agentReceiveTask);
+        cts.Cancel();
+
+        await agentWs.BestEffortSendAsync(new { type = "disconnect" }, ct);
+    }
+
+    private void SendConnected(LanguageConfig languageConfig, ITranslator ts, ACSCallBridge bridge, CancellationToken ct) => Task.Run(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(languageConfig.ConnectedMessage)) return;
+        await ts.SpeakAsync(languageConfig.ConnectedMessage, async (data) =>
+        {
+            await bridge.SendToCallerAsync(data, ct);
+        });
+    });
+
     // We just throw this on a separate thread to avoid blocking the main call logic
-    private void SendConnected(LanguageConfig languageConfig, TranslatorInstance ts, WebSocket ws) => Task.Run(async () =>
+    private void SendConnected(LanguageConfig languageConfig, ITranslator ts, WebSocket ws) => Task.Run(async () =>
     {
         if (string.IsNullOrWhiteSpace(languageConfig.ConnectedMessage)) return;
         await ts.SpeakAsync(languageConfig.ConnectedMessage, async (data) =>
