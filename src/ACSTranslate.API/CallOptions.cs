@@ -1,8 +1,7 @@
 public record CallOptions(
     string UserLanguage,
     string AgentLanguage,
-    CallAudioOptions? AgentAudioOptions,
-    string? TranslatorMode = null
+    CallAudioOptions? AgentAudioOptions
 );
 
 public record CallAudioOptions(

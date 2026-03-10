@@ -97,50 +97,6 @@ main {
     background: #22c55e;
 }
 
-/* Translator toggle switch */
-.toggle-switch {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 4px;
-}
-.toggle-label {
-    font-size: .75rem;
-    color: var(--text-dim);
-    transition: color .2s;
-    user-select: none;
-}
-.toggle-label.selected {
-    color: var(--text);
-    font-weight: 600;
-}
-.toggle-track {
-    width: 40px;
-    height: 22px;
-    background: var(--panel-alt);
-    border: 1px solid var(--border);
-    border-radius: 11px;
-    position: relative;
-    cursor: pointer;
-    flex-shrink: 0;
-    transition: background .2s;
-}
-.toggle-track:hover {
-    border-color: var(--accent);
-}
-.toggle-thumb {
-    width: 16px;
-    height: 16px;
-    background: var(--accent);
-    border-radius: 50%;
-    position: absolute;
-    top: 2px;
-    left: 2px;
-    transition: left .2s;
-}
-.toggle-thumb.active {
-    left: 20px;
-}
 button.disconnect {
     background: var(--danger);
     color: #fff;

@@ -260,8 +260,6 @@ public class AISpeechTranslatorFactory : ITranslatorFactory
         _auth = auth;
     }
 
-    public Translator Mode => Translator.AISpeech;
-
     public async Task<ITranslator> CreateAsync(LanguageConfig inputLanguage, LanguageConfig outputLanguage)
     {
         return await AISpeechTranslator.CreateAsync(inputLanguage, outputLanguage, _auth);

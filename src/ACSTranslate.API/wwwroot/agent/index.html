@@ -33,18 +33,6 @@
                     </select>
                 </div>
 
-                <div class="field" id="translatorModeField" style="display:none">
-                    <label>Translator</label>
-                    <input type="hidden" id="translatorMode" value="">
-                    <div class="toggle-switch" id="translatorToggle">
-                        <span class="toggle-label toggle-left" id="toggleLabelLeft">AISpeech</span>
-                        <div class="toggle-track" id="toggleTrack">
-                            <div class="toggle-thumb" id="toggleThumb"></div>
-                        </div>
-                        <span class="toggle-label toggle-right" id="toggleLabelRight">VoiceLive</span>
-                    </div>
-                </div>
-
                 <fieldset class="audio-options">
                     <legend>Audio Options</legend>
                     <div class="field">
@@ -146,7 +134,6 @@
                                 options: {
                                     UserLanguage: userLanguage,
                                     AgentLanguage: agentLanguage,
-                                    TranslatorMode: document.getElementById("translatorMode").value || null,
                                     AgentAudioOptions: {
                                         UserOriginalAudio: document.getElementById("callerOrigChan").checked,
                                         UserTranslatedAudio: document.getElementById("callerTransChan").checked,
@@ -301,35 +288,6 @@
                     fillLanguages("callerLang", message.languages, "es-MX");
                     fillLanguages("agentLang", message.languages, "en-US");
                 }
-                else if (message.type === "translatorModes") {
-                    const field = document.getElementById("translatorModeField");
-                    const hiddenInput = document.getElementById("translatorMode");
-                    const track = document.getElementById("toggleTrack");
-                    const thumb = document.getElementById("toggleThumb");
-                    const labelLeft = document.getElementById("toggleLabelLeft");
-                    const labelRight = document.getElementById("toggleLabelRight");
-
-                    if (message.modes && message.modes.length > 1) {
-                        labelLeft.textContent = message.modes[0];
-                        labelRight.textContent = message.modes[1];
-                        const isRight = message.defaultMode === message.modes[1];
-                        hiddenInput.value = message.defaultMode;
-                        thumb.classList.toggle("active", isRight);
-                        labelLeft.classList.toggle("selected", !isRight);
-                        labelRight.classList.toggle("selected", isRight);
-
-                        track.onclick = () => {
-                            const nowRight = thumb.classList.toggle("active");
-                            hiddenInput.value = nowRight ? message.modes[1] : message.modes[0];
-                            labelLeft.classList.toggle("selected", !nowRight);
-                            labelRight.classList.toggle("selected", nowRight);
-                        };
-                        field.style.display = "";
-                    } else {
-                        hiddenInput.value = (message.modes && message.modes[0]) || "";
-                        field.style.display = "none";
-                    }
-                }
                 else if (message.type === "transcription") {
                     const transcript = document.getElementById("transcript");
                     if (!transcript.querySelector(".agent") ||
@@ -410,7 +368,6 @@
                                         options: {
                                             UserLanguage: userLanguage,
                                             AgentLanguage: agentLanguage,
-                                            TranslatorMode: document.getElementById("translatorMode").value || null,
                                             AgentAudioOptions: {
                                                 UserOriginalAudio: document.getElementById("callerOrigChan").checked,
                                                 UserTranslatedAudio: document.getElementById("callerTransChan").checked,

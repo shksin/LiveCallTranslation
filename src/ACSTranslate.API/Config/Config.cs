@@ -1,28 +1,13 @@
 namespace ACSTranslate;
 
-/// <summary>
-/// Translator type: AISpeech (3-stage: STT → Translate → TTS) or VoiceLive (single model end-to-end)
-/// </summary>
-public enum Translator
-{
-    /// <summary>
-    /// Uses Azure Speech SDK: Speech Recognition → Translation → Text-to-Speech (higher latency, more control)
-    /// </summary>
-    AISpeech,
-    
-    /// <summary>
-    /// Uses GPT-4o Realtime API (Voice Live API): End-to-end audio translation with server-side VAD (lower latency)
-    /// </summary>
-    VoiceLive
-}
+public enum Translator { AISpeech }
 
 public record Config (
     AzureAISpeechConfig AzureAISpeech,
+    Translator Translator = Translator.AISpeech,
     ACSConfig? ACS = null,
     InboundConfig? Inbound = null,
     EventGridConfig? EventGrid = null,
-    AzureOpenAIConfig? AzureOpenAI = null,
-    Translator Translator = Translator.AISpeech,
     string? AzureTenantId = null,
     string? AuthCode = null
 );
@@ -36,18 +21,6 @@ public record ACSConfig(
 )
 {
     public bool IsConfigured => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(InboundNumber);
-};
-
-public record AzureOpenAIConfig(
-    string? Endpoint = null,
-    string? DeploymentName = null,
-    string? ApiKey = null,
-    string? ApiVersion = "2025-05-01-preview",
-    bool UseAzureSpeechVoices = true,
-    bool UseTelephonyResampling = false
-)
-{
-    public bool IsConfigured => !string.IsNullOrWhiteSpace(Endpoint) && !string.IsNullOrWhiteSpace(DeploymentName);
 };
 
 public record InboundConfig(string? Hostname)

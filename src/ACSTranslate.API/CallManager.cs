@@ -6,7 +6,7 @@ using ACSTranslate;
 using ACSTranslate.Translation;
 
 public class CallManager(
-    TranslatorFactoryProvider _translatorProvider,
+    ITranslatorFactory _translatorFactory,
     CallService _callService,
     ACSCallBridgeManager _bridgeManager,
     ILogger<CallManager> _logger
@@ -91,14 +91,6 @@ public class CallManager(
                 languages = LanguageConfig.ListLanguages()
             }, ct);
 
-            // Send available translator modes
-            await ws.SendAsync(new
-            {
-                type = "translatorModes",
-                modes = _translatorProvider.AvailableModes,
-                defaultMode = _translatorProvider.DefaultMode
-            }, ct);
-
             // First up, configure subscriptions to call events
             var callEventUpdater = Task.Run(async () => await CallEventsLoop(ws, ct), ct);
 
@@ -152,8 +144,7 @@ public class CallManager(
                         var userLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.UserLanguage ?? acsCall.UserLanguage);
                         var agentLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.AgentLanguage ?? "en-US");
                         var agentAudioOptions = callOptions?.AgentAudioOptions ?? new CallAudioOptions(false, true, false, false);
-                        var translatorFactory = _translatorProvider.GetFactory(callOptions?.TranslatorMode);
-                        _logger.LogInformation("ACS call {CallId} using translator: {Mode}", callId, translatorFactory.Mode);
+                        _logger.LogInformation("ACS call {CallId} using AI Speech translator", callId);
 
                         if (userLanguageConfig == null || agentLanguageConfig == null)
                         {
@@ -177,11 +168,12 @@ public class CallManager(
                         // Run the ACS call translation pipeline (blocks until call ends)
                         try
                         {
-                            await RunACSCallAsync(callId, ws, userLanguageConfig, agentLanguageConfig, agentAudioOptions, translatorFactory, ct);
+                            await RunACSCallAsync(callId, ws, userLanguageConfig, agentLanguageConfig, agentAudioOptions, _translatorFactory, ct);
                         }
                         catch (Exception e)
                         {
                             _logger.LogError(e, "Error during ACS call {CallId}", callId);
+                            await ws.BestEffortSendAsync(new { type = "error", message = $"Call failed: {e.Message}" }, ct);
                         }
                         finally
                         {
@@ -232,8 +224,7 @@ public class CallManager(
                         var userLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.UserLanguage);
                         var agentLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.AgentLanguage);
                         var agentAudioOptions = callOptions?.AgentAudioOptions ?? new CallAudioOptions(false, true, false, false);
-                        var translatorFactory = _translatorProvider.GetFactory(callOptions?.TranslatorMode);
-                        _logger.LogInformation("Call {CallId} using translator: {Mode}", callId, translatorFactory.Mode);
+                        _logger.LogInformation("Call {CallId} using AI Speech translator", callId);
 
                         if (userLanguageConfig == null || agentLanguageConfig == null)
                         {
@@ -260,7 +251,7 @@ public class CallManager(
                                 ws,
                                 agentLanguageConfig,
                                 agentAudioOptions,
-                                translatorFactory,
+                                _translatorFactory,
                                 ct
                             );
                         }
@@ -330,7 +321,7 @@ public class CallManager(
         await userWs.SendAsync(new { type = "enable" }, cts.Token);
         await agentWs.SendAsync(new { type = "enable" }, cts.Token);
 
-        // Set up our 2 translators (using configured translation mode: AISpeech or VoiceLive)
+        // Set up our 2 translators
         using var userToAgentTranslator = await translatorFactory.CreateAsync(
             userLanguage,
             agentLanguage
@@ -433,6 +424,7 @@ public class CallManager(
         mixer.SetAudioOptions(agentAudioOptions);
 
         // Set up translators
+        _logger.LogInformation("Creating translators for call {CallId}", callId);
         using var userToAgentTranslator = await translatorFactory.CreateAsync(userLanguage, agentLanguage);
         userToAgentTranslator.AttachDebugLogging(_logger);
         userToAgentTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>

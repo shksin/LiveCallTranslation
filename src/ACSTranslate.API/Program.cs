@@ -18,58 +18,13 @@ builder.Services.AddSingleton<WebSocketManager>();
 builder.Services.AddSingleton<CallManager>();
 builder.Services.AddSingleton<CognitiveServicesAuth>();
 
-// Register translator factories — both AISpeech and VoiceLive (if configured)
-builder.Services.AddSingleton<TranslatorFactoryProvider>(sp =>
+// Register AI Speech translator
+builder.Services.AddSingleton<ITranslatorFactory>(sp =>
 {
-    var config = sp.GetRequiredService<Config>();
-    var logger = sp.GetRequiredService<ILogger<Program>>();
-    
-    var provider = new TranslatorFactoryProvider(config.Translator);
-    
-    // Always register AISpeech
-    provider.Register(CreateAISpeechFactory(sp, logger));
-    
-    // Register VoiceLive if configured
-    var openAIConfig = config.AzureOpenAI ?? new AzureOpenAIConfig();
-    if (openAIConfig.IsConfigured)
-    {
-        provider.Register(CreateVoiceLiveFactory(sp, config, logger));
-    }
-    
-    logger.LogInformation("Translator default: {Mode}, available: {Modes}", 
-        config.Translator, string.Join(", ", provider.AvailableModes));
-    
-    return provider;
-});
-builder.Services.AddSingleton<ITranslatorFactory>(sp => sp.GetRequiredService<TranslatorFactoryProvider>().GetFactory());
-
-static ITranslatorFactory CreateAISpeechFactory(IServiceProvider sp, ILogger logger)
-{
-    logger.LogInformation("Using AI Speech translator (3-stage: STT → Translate → TTS)");
     var cogAuth = sp.GetRequiredService<CognitiveServicesAuth>();
+    sp.GetRequiredService<ILogger<Program>>().LogInformation("Using AI Speech translator (3-stage: STT → Translate → TTS)");
     return new AISpeechTranslatorFactory(cogAuth);
-}
-
-static ITranslatorFactory CreateVoiceLiveFactory(IServiceProvider sp, Config config, ILogger logger)
-{
-    var openAIConfig = config.AzureOpenAI ?? new AzureOpenAIConfig();
-    if (!openAIConfig.IsConfigured)
-    {
-        logger.LogWarning("Voice Live mode selected but AzureOpenAI not configured. Falling back to AI Speech.");
-        return CreateAISpeechFactory(sp, logger);
-    }
-    
-    logger.LogInformation("Using Voice Live WebSocket translator (direct API, echo cancellation, noise reduction)");
-    logger.LogInformation("  Azure Speech Voices: {UseAzureSpeechVoices}", openAIConfig.UseAzureSpeechVoices);
-    logger.LogInformation("  Telephony Resampling: {UseTelephonyResampling}", openAIConfig.UseTelephonyResampling);
-    
-    var loggerFactory = sp.GetRequiredService<ILoggerFactory>();
-    return new VoiceLiveWebSocketTranslatorFactory(
-        openAIConfig, 
-        loggerFactory,
-        openAIConfig.UseTelephonyResampling,
-        openAIConfig.UseAzureSpeechVoices);
-}
+});
 
 builder.Services.AddSingleton<TokenCredential>(context =>
 {
