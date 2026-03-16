@@ -57,6 +57,27 @@ public class CallService
         return call;
     }
 
+    /// <summary>
+    /// Create a call record for a Genesys AudioHook session (no ACS answer needed).
+    /// </summary>
+    public async Task<Call> CreateGenesysCallAsync(string conversationId, string userLanguage)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var call = new Call
+        {
+            Id = Guid.NewGuid(),
+            Status = CallStatus.Waiting,
+            CallerId = $"genesys:{conversationId}",
+            CallReceived = DateTimeOffset.UtcNow,
+            UserLanguage = userLanguage,
+            IncomingCallContext = $"genesys:{conversationId}"
+        };
+        db.Calls.Add(call);
+        await db.SaveChangesAsync();
+        _logger.LogInformation("Created Genesys call {CallId} for conversation {ConversationId}", call.Id, conversationId);
+        return call;
+    }
+
     public async Task<Call?> GetCallAsync(Guid callId)
     {
         using var db = _dbFactory.CreateDbContext();

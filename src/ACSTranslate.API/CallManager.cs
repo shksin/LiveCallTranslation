@@ -3,12 +3,14 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using System.Threading.Tasks.Dataflow;
 using ACSTranslate;
+using ACSTranslate.Genesys;
 using ACSTranslate.Translation;
 
 public class CallManager(
     ITranslatorFactory _translatorFactory,
     CallService _callService,
     ACSCallBridgeManager _bridgeManager,
+    GenesysCallBridgeManager _genesysBridgeManager,
     ILogger<CallManager> _logger
 )
 {
@@ -122,7 +124,64 @@ public class CallManager(
 
                     // Check if this is an ACS call from the database
                     var acsCall = await _callService.GetCallAsync(callId);
-                    if (acsCall != null && acsCall.Status == CallStatus.Waiting)
+                    if (acsCall != null && acsCall.Status == CallStatus.Waiting && acsCall.IncomingCallContext?.StartsWith("genesys:") == true)
+                    {
+                        _logger.LogInformation("Agent {AgentId} connecting to Genesys call {CallId}", agentId, callId);
+                        
+                        // Parse call options
+                        CallOptions? callOptions = null;
+                        try
+                        {
+                            var optionsNode = request?["options"];
+                            if (optionsNode is not null)
+                            {
+                                callOptions = optionsNode.Deserialize<CallOptions>();
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogWarning(ex, "Failed to deserialize call options for Genesys call {CallId}", callId);
+                        }
+
+                        var userLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.UserLanguage ?? acsCall.UserLanguage);
+                        var agentLanguageConfig = LanguageConfig.GetLanguageConfig(callOptions?.AgentLanguage ?? "en-US");
+                        var agentAudioOptions = callOptions?.AgentAudioOptions ?? new CallAudioOptions(false, true, false, false);
+                        _logger.LogInformation("Genesys call {CallId} using AI Speech translator", callId);
+
+                        if (userLanguageConfig == null || agentLanguageConfig == null)
+                        {
+                            await ws.SendAsync(new { type = "error", message = "Invalid language options" }, ct);
+                            await SendAllCallStatus(ws, ct);
+                            continue;
+                        }
+
+                        await _callService.SetCallStatusAsync(callId, CallStatus.Answered);
+                        
+                        await ws.SendAsync(new
+                        {
+                            type = "acsCallConnected",
+                            callId = callId.ToString(),
+                            source = "Genesys"
+                        }, ct);
+
+                        try
+                        {
+                            await RunGenesysCallAsync(callId, acsCall.IncomingCallContext!, ws, userLanguageConfig, agentLanguageConfig, agentAudioOptions, _translatorFactory, ct);
+                        }
+                        catch (Exception e)
+                        {
+                            _logger.LogError(e, "Error during Genesys call {CallId}", callId);
+                            await ws.BestEffortSendAsync(new { type = "error", message = $"Call failed: {e.Message}" }, ct);
+                        }
+                        finally
+                        {
+                            await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
+                            _logger.LogInformation("Agent {AgentId} ended Genesys call: {CallId}", agentId, callId);
+                            await ws.BestEffortSendAsync(new { type = "acsCallDisconnected", callId = callId.ToString(), source = "Genesys" }, ct);
+                        }
+                        continue;
+                    }
+                    else if (acsCall != null && acsCall.Status == CallStatus.Waiting)
                     {
                         _logger.LogInformation("Agent {AgentId} connecting to ACS call {CallId}", agentId, callId);
                         
@@ -162,7 +221,8 @@ public class CallManager(
                         await ws.SendAsync(new
                         {
                             type = "acsCallConnected",
-                            callId = callId.ToString()
+                            callId = callId.ToString(),
+                            source = "ACS"
                         }, ct);
 
                         // Run the ACS call translation pipeline (blocks until call ends)
@@ -180,7 +240,7 @@ public class CallManager(
                             await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
                             _bridgeManager.Remove(callId);
                             _logger.LogInformation("Agent {AgentId} ended ACS call: {CallId}", agentId, callId);
-                            await ws.BestEffortSendAsync(new { type = "acsCallDisconnected", callId = callId.ToString() }, ct);
+                            await ws.BestEffortSendAsync(new { type = "acsCallDisconnected", callId = callId.ToString(), source = "ACS" }, ct);
                         }
                         continue;
                     }
@@ -505,6 +565,136 @@ public class CallManager(
     }
 
     private void SendConnected(LanguageConfig languageConfig, ITranslator ts, ACSCallBridge bridge, CancellationToken ct) => Task.Run(async () =>
+    {
+        if (string.IsNullOrWhiteSpace(languageConfig.ConnectedMessage)) return;
+        await ts.SpeakAsync(languageConfig.ConnectedMessage, async (data) =>
+        {
+            await bridge.SendToCallerAsync(data, ct);
+        });
+    });
+
+    /// <summary>
+    /// Runs a full translation pipeline for a Genesys call, bridging audio between the
+    /// Genesys caller (via GenesysCallBridge) and the agent WebSocket.
+    /// Mirrors RunACSCallAsync but uses the Genesys bridge.
+    /// </summary>
+    private async Task RunGenesysCallAsync(
+        Guid callId,
+        string genesysContext,
+        WebSocket agentWs,
+        LanguageConfig userLanguage,
+        LanguageConfig agentLanguage,
+        CallAudioOptions agentAudioOptions,
+        ITranslatorFactory translatorFactory,
+        CancellationToken ct)
+    {
+        // The genesysContext is "genesys:{conversationId}" — extract the sessionId used as bridge key
+        // The bridge is keyed by the AudioHook session ID, which GenesysWebSocketHandler registered.
+        // We need to find the bridge by scanning for the matching conversationId.
+        GenesysCallBridge? bridge = null;
+        var conversationId = genesysContext.Replace("genesys:", "");
+
+        for (int i = 0; i < 50; i++) // up to 5 seconds
+        {
+            bridge = _genesysBridgeManager.FindByConversationId(conversationId);
+            if (bridge != null) break;
+            await Task.Delay(100, ct);
+        }
+        if (bridge == null)
+        {
+            _logger.LogWarning("No Genesys bridge found for call {CallId} (conversation {ConvId}) after waiting", callId, conversationId);
+            return;
+        }
+
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(ct, bridge.DisconnectToken);
+
+        // Audio mixing for the agent
+        DynamicMixer mixer = new(new(16000, 16, 1), 120, 50);
+        var mixerLoop = Task.Run(async () => await mixer.SendMixedAudioAsync(agentWs, cts.Token), cts.Token);
+        mixer.SetAudioOptions(agentAudioOptions);
+
+        // Set up translators
+        _logger.LogInformation("Creating translators for Genesys call {CallId}", callId);
+        using var userToAgentTranslator = await translatorFactory.CreateAsync(userLanguage, agentLanguage);
+        userToAgentTranslator.AttachDebugLogging(_logger);
+        userToAgentTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
+        {
+            await agentWs.SendAsync(new
+            {
+                type = "transcription",
+                source = "user",
+                originalText,
+                translatedText,
+                isFinal
+            }, cts.Token);
+        });
+        userToAgentTranslator.AttachSpeechOutput((data) =>
+        {
+            mixer.AddUserTranslatedAudio(data);
+            return Task.CompletedTask;
+        });
+
+        using var agentToUserTranslator = await translatorFactory.CreateAsync(agentLanguage, userLanguage);
+        agentToUserTranslator.AttachDebugLogging(_logger);
+        agentToUserTranslator.AttachTranscribeOutput(async (originalText, translatedText, isFinal) =>
+        {
+            await agentWs.SendAsync(new
+            {
+                type = "transcription",
+                source = "agent",
+                originalText,
+                translatedText,
+                isFinal
+            }, cts.Token);
+        });
+        agentToUserTranslator.AttachSpeechOutput(async (data) =>
+        {
+            mixer.AddAgentTranslatedAudio(data);
+            await bridge.SendToCallerAsync(data, cts.Token);
+        });
+
+        // Tell the agent to start sending audio
+        await agentWs.SendAsync(new { type = "enable" }, cts.Token);
+
+        // Send welcome message to caller via the speech pipeline
+        SendConnected(userLanguage, agentToUserTranslator, bridge, cts.Token);
+
+        // Task 1: Read caller audio from bridge → feed to user-to-agent translator + mixer
+        var callerAudioTask = Task.Run(async () =>
+        {
+            int callerPackets = 0;
+            try
+            {
+                await foreach (var audio in bridge.CallerAudioReader.ReadAllAsync(cts.Token))
+                {
+                    mixer.AddUserOriginalAudio(audio);
+                    userToAgentTranslator.SendData(audio);
+                    callerPackets++;
+                    if (callerPackets % 100 == 1)
+                    {
+                        _logger.LogInformation("Genesys caller audio packets fed to translator: {Count}, size: {Size}", callerPackets, audio.Length);
+                    }
+                }
+            }
+            catch (OperationCanceledException) { }
+            _logger.LogInformation("Genesys caller audio task ended after {Count} packets", callerPackets);
+        }, cts.Token);
+
+        // Task 2: Receive agent audio from WebSocket → feed to agent-to-user translator + mixer
+        var agentReceiveTask = ReceiveLoopAsync(agentWs, (data) =>
+        {
+            mixer.AddAgentOriginalAudio(data);
+            agentToUserTranslator.SendData(data);
+        }, mixer.SetAudioOptions, cts.Token);
+
+        // Wait for either side to end
+        await Task.WhenAny(callerAudioTask, agentReceiveTask);
+        cts.Cancel();
+
+        await agentWs.BestEffortSendAsync(new { type = "disconnect" }, ct);
+    }
+
+    private void SendConnected(LanguageConfig languageConfig, ITranslator ts, GenesysCallBridge bridge, CancellationToken ct) => Task.Run(async () =>
     {
         if (string.IsNullOrWhiteSpace(languageConfig.ConnectedMessage)) return;
         await ts.SpeakAsync(languageConfig.ConnectedMessage, async (data) =>

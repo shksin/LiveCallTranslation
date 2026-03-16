@@ -4,6 +4,7 @@ using Azure.ResourceManager;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ACSTranslate;
+using ACSTranslate.Genesys;
 using ACSTranslate.Translation;
 
 var builder = WebApplication.CreateBuilder(args);
@@ -70,6 +71,10 @@ builder.Services.AddDbContextFactory<OrchestratorContext>((services, options) =>
 builder.Services.AddSingleton<CallService>();
 builder.Services.AddSingleton<ACSCallBridgeManager>();
 builder.Services.AddSingleton<ACSWebSocketHandler>();
+
+// Genesys AudioHook v2 services
+builder.Services.AddSingleton<GenesysCallBridgeManager>();
+builder.Services.AddSingleton<GenesysWebSocketHandler>();
 builder.Services.AddSingleton<InboundCallHandler>();
 builder.Services.AddSingleton<EventGridSubscriptionManager>();
 builder.Services.AddSingleton<IEnumerable<IEventGridHandler>>(services => 
@@ -77,35 +82,7 @@ builder.Services.AddSingleton<IEnumerable<IEventGridHandler>>(services =>
 
 var app = builder.Build();
 
-// Basic auth using query string code
-app.Use(async (context, next) =>
-{
-    var authCode = context.RequestServices.GetRequiredService<Config>().AuthCode;
-    if (!string.IsNullOrEmpty(authCode))
-    {
-        var code = context.Request.Query["code"].FirstOrDefault();
-        if (context.Request.Path.StartsWithSegments("/public") ||
-            context.Request.Path.StartsWithSegments("/api/events") ||
-            context.Request.Path.StartsWithSegments("/ws/acs") ||
-            context.Request.Path.StartsWithSegments("/api/calls/acs/config") ||
-            context.Request.Path.StartsWithSegments("/api/simulator"))
-        {
-            // Allow public files, event grid webhooks, ACS websockets, ACS config, and simulator
-        }
-        else if (string.IsNullOrEmpty(code) || !code.Equals(authCode, StringComparison.Ordinal))
-        {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsync("Unauthorized");
-            return;
-        }
-    }
-    else
-    {
-        context.RequestServices.GetRequiredService<ILogger<Program>>()
-            .LogError("!!! No auth code has been configured, skipping authentication !!!");
-    }
-    await next();
-});
+
 
 Console.WriteLine("=== APPLICATION STARTING - CONSOLE TEST ===");
 Console.WriteLine($"Environment: {builder.Environment.EnvironmentName}");
@@ -146,6 +123,31 @@ app.MapGet("/ws/acs/{callId:guid}", async (
 
     using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
     await handler.HandleACSStreamAsync(callId, webSocket, context.RequestAborted);
+});
+
+// Genesys AudioHook v2 - WebSocket endpoint
+app.MapGet("/ws/genesys", async (
+    [FromServices] GenesysWebSocketHandler handler,
+    HttpContext context
+) =>
+{
+    if (!context.WebSockets.IsWebSocketRequest)
+    {
+        context.Response.StatusCode = 400;
+        return;
+    }
+
+    var sessionId = context.Request.Headers["audiohook-session-id"].FirstOrDefault()
+                    ?? context.Request.Query["sessionId"].FirstOrDefault();
+    if (string.IsNullOrEmpty(sessionId))
+    {
+        context.Response.StatusCode = 400;
+        await context.Response.WriteAsync("Missing audiohook-session-id header");
+        return;
+    }
+
+    using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
+    await handler.HandleGenesysStreamAsync(sessionId, webSocket, context.RequestAborted);
 });
 
 app.MapGet("/", () => "Ok.");

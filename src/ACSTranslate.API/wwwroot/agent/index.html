@@ -74,12 +74,11 @@
     <script src="/public/helper.js"></script>
     <script>
         // Check for ACS waiting calls periodically
-        const authCode = new URLSearchParams(window.location.search).get("code");
         let socket = null; // Declare socket in outer scope so ACS handlers can access it
         
         async function checkACSCalls() {
             try {
-                const response = await fetch('/api/calls/waiting?code=' + encodeURIComponent(authCode || ''));
+                const response = await fetch('/api/calls/waiting');
                 if (response.ok) {
                     const calls = await response.json();
                     updateACSCallsList(calls);
@@ -103,11 +102,12 @@
             if (calls && calls.length > 0) {
                 calls.forEach(call => {
                     if (document.getElementById('call-' + call.id)) return; // already in list
+                    const isGenesys = call.callerId?.startsWith('genesys:');
                     const callDiv = document.createElement('div');
                     callDiv.className = 'call-item acs-call';
                     callDiv.id = 'call-' + call.id;
                     callDiv.innerHTML = `
-                        <div class="call-id">📞 ACS Call</div>
+                        <div class="call-id">${isGenesys ? '🎧 Genesys Call' : '📞 ACS Call'}</div>
                         <div class="call-meta">
                             From: ${call.callerId}<br>
                             Language: ${call.userLanguage}<br>
@@ -240,9 +240,8 @@
 
             // Finally connect our socket
             const refresh = () => location.reload();
-            const authCode = new URLSearchParams(window.location.search).get("code");
             statusText.innerText = "Connecting to server...";
-            socket = new WebSocket("/api/agent/ws?code=" + encodeURIComponent(authCode || ""));
+            socket = new WebSocket("/api/agent/ws");
             socket.onclose = (event) => {
                 console.log("WebSocket closed:", event);
                 setTimeout(refresh, 1000);
@@ -262,6 +261,7 @@
                 else if (message.type === "enable") {
                     audioEnabled = true;
                     document.getElementById("transcript").innerHTML = "";
+                    statusText.innerText = "Browser call connected — translating...";
                 }
                 else if (message.type === "disconnect") {
                     audioEnabled = false;
@@ -406,14 +406,14 @@
                         const meta = callBox.querySelector('.call-meta');
                         if (meta) { meta.innerHTML += '<br><strong>Status: Ongoing</strong>'; }
                     }
-                    statusText.innerText = "ACS call connected — translating...";
-                    console.log("ACS call connected:", message.callId);
+                    statusText.innerText = (message.source || "Call") + " call connected — translating...";
+                    console.log((message.source || "Call") + " call connected:", message.callId);
                 } else if (message.type === "acsCallDisconnected") {
                     // ACS call ended
                     audioEnabled = false;
                     const callBox = document.getElementById("call-" + message.callId);
                     if (callBox) callBox.remove();
-                    statusText.innerText = "ACS call ended.";
+                    statusText.innerText = (message.source || "Call") + " call ended.";
                     console.log("ACS call disconnected:", message.callId);
                 } else {
                     console.warn("Unknown message type:", message);
