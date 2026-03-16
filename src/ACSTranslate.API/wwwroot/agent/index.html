@@ -259,9 +259,11 @@
                 if (message.type === "refresh") refresh();
                 else if (message.type === "ping") { }
                 else if (message.type === "enable") {
+                    if (!audioEnabled) {
+                        statusText.innerText = "Browser call connected — translating...";
+                    }
                     audioEnabled = true;
                     document.getElementById("transcript").innerHTML = "";
-                    statusText.innerText = "Browser call connected — translating...";
                 }
                 else if (message.type === "disconnect") {
                     audioEnabled = false;
