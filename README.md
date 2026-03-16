@@ -19,10 +19,11 @@ Real-time multilingual voice translation between non-English-speaking callers an
 | [ACS Integration](ACS_INTEGRATION.md) | Detailed ACS telephony integration — architecture, call flow, EventGrid setup |
 | [Genesys Integration](GENESYS_INTEGRATION.md) | Genesys AudioHook v2 integration — architecture, protocol, deployment |
 | [Genesys Simulator](GENESYS_SIMULATOR.md) | Browser-based Genesys AudioHook simulator usage guide |
+| [Browser Mode](BROWSER_MODE.md) | Direct browser-to-browser WebSocket mode — architecture, messages, usage |
 
 ## Architecture
 
-For mode-specific architecture diagrams, see [ACS Integration](ACS_INTEGRATION.md) and [Genesys Integration](GENESYS_INTEGRATION.md).
+For mode-specific architecture diagrams, see [ACS Integration](ACS_INTEGRATION.md), [Genesys Integration](GENESYS_INTEGRATION.md), and [Browser Mode](BROWSER_MODE.md).
 
 ### Translation Pipeline (Azure AI Speech SDK)
 
@@ -42,19 +43,6 @@ Each direction of translation uses a 3-stage pipeline:
      │                                                  │
   Raw PCM audio                                  Translated PCM audio
   (16kHz, 16-bit, mono)                          (16kHz, 16-bit, mono)
-```
-
-### Direct WebSocket Mode (Browser-to-Browser)
-
-For local testing without ACS/telephony:
-
-```
-┌──────────┐   WebSocket    ┌──────────────────┐   WebSocket    ┌──────────┐
-│   User   │◄──────────────►│   CallManager    │◄──────────────►│  Agent   │
-│(Browser) │  /api/user/ws  │                  │ /api/agent/ws  │(Browser) │
-└──────────┘                │  Same translator │                └──────────┘
-                            │  pipeline as ACS │
-                            └──────────────────┘
 ```
 
 ## Important Notes
