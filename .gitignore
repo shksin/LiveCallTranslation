@@ -402,3 +402,4 @@ FodyWeavers.xsd
 
 # Deploy params
 *.bicepparam
+.claude/settings.local.json
