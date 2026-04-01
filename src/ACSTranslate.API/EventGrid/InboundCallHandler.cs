@@ -1,21 +1,41 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Azure.Messaging;
+using Microsoft.Extensions.Logging;
 
 namespace ACSTranslate;
 
-class InboundCallHandler(
-    CallService _callService,
-    ACSService _acsService,
-    ILogger<InboundCallHandler> _logger
-) : IEventGridHandler
+public interface IEventGridHandler
 {
+    string[] EventTypes { get; }
+    Task HandleEventAsync(CloudEvent cloudEvent);
+}
+
+public class InboundCallHandler : IEventGridHandler
+{
+    private readonly CallService _callService;
+    private readonly ACSService _acsService;
+    private readonly ILogger<InboundCallHandler> _logger;
     private static readonly TimeSpan _maxEventAge = TimeSpan.FromMinutes(3);
-    public string[] EventTypes { get; } = [
-        "Microsoft.Communication.IncomingCall"
-    ];
+
+    public InboundCallHandler(
+        CallService callService,
+        ACSService acsService,
+        ILogger<InboundCallHandler> logger)
+    {
+        _callService = callService;
+        _acsService = acsService;
+        _logger = logger;
+    }
+
+    public string[] EventTypes { get; } = ["Microsoft.Communication.IncomingCall"];
 
     public async Task HandleEventAsync(CloudEvent cloudEvent)
     {
-        _logger.LogInformation("Received incoming call event: {Event}", cloudEvent);
+        _logger.LogInformation("Received incoming call event");
+        
         if (cloudEvent.Time == null || cloudEvent.Time.Value.Add(_maxEventAge) < DateTimeOffset.UtcNow)
         {
             _logger.LogWarning("Event is too old, ignoring");
@@ -29,52 +49,32 @@ class InboundCallHandler(
             return;
         }
 
-        if (_acsService.RawIdIsInboundNumber(incomingCallData.to.rawId) || await _acsService.RawIdIsUserApplication(incomingCallData.to.rawId))
+        // Check if this is a call to our inbound number
+        if (_acsService.MatchesInboundNumber(incomingCallData.to.rawId))
         {
-            var caller = incomingCallData.from.rawId.Split(":")[1];
-
-            if (incomingCallData.customContext.voipHeaders.TryGetValue("name", out var callerName))
+            var caller = incomingCallData.from.rawId.Split(":").LastOrDefault() ?? "Unknown";
+            
+            // Check for language in custom context
+            var language = "en-US";
+            if (incomingCallData.customContext?.voipHeaders?.TryGetValue("language", out var lang) == true)
             {
-                // Make sure caller name only contains letters, numbers, and spaces
-                callerName = new string([.. callerName.Where(c => char.IsLetterOrDigit(c) || char.IsWhiteSpace(c))]);
-
-                if (!string.IsNullOrWhiteSpace(callerName))
-                {
-                    caller = callerName;
-                }
+                language = lang;
             }
 
-            // Check language settings
-            var languageCode = "";
-            if (incomingCallData.customContext.voipHeaders.TryGetValue("language", out var callerLanguage)
-                && !string.IsNullOrWhiteSpace(callerLanguage))
-            {
-                languageCode = callerLanguage;
-            }
-
-            var languageConfig = TranslationConfig.GetConfig(languageCode);
-
-            var call = await _callService.CreateCallAsync(incomingCallData.incomingCallContext, caller, languageConfig);
-
-            _logger.LogInformation("Created call: {Call}", call);
-        }
-        else if (await _acsService.RawIdIsServerApplication(incomingCallData.to.rawId))
-        {
-            var callId = Guid.Parse(incomingCallData.customContext.voipHeaders["callId"]);
-
-            var call = await _callService.ConnectCallAsync(callId, incomingCallData.incomingCallContext);
-
-            _logger.LogInformation("Connecting call: {Call}", call);
+            await _callService.CreateCallAsync(incomingCallData.incomingCallContext, caller, language);
         }
         else
         {
-            _logger.LogInformation("To {To} did not match expected parties, ignoring event", incomingCallData.to.rawId);
-
-            return;
+            _logger.LogInformation("Incoming call to {To} does not match inbound number", incomingCallData.to.rawId);
         }
     }
 
-    private record IncomingCallData(string incomingCallContext, CallPartyData to, CallPartyData from, CustomContextData customContext);
+    private record IncomingCallData(
+        string incomingCallContext, 
+        CallPartyData to, 
+        CallPartyData from, 
+        CustomContextData? customContext);
+    
     private record CallPartyData(string kind, string rawId);
-    private record CustomContextData(Dictionary<string, string> voipHeaders);
+    private record CustomContextData(Dictionary<string, string>? voipHeaders);
 }

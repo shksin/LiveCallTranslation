@@ -1,45 +1,449 @@
-<html data-theme="light">
+<html>
 
 <head>
-    <title>Live Call Translation - User Interface</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>User Interface</title>
+    <link rel="stylesheet" href="/public/style.css">
+    <style>
+        .mode-selector {
+            margin: 20px auto;
+            max-width: 900px;
+            padding: 20px;
+            background: #f5f5f5;
+            border-radius: 8px;
+        }
+        .mode-selector h2 {
+            margin-top: 0;
+            font-size: 1.2em;
+            color: #333;
+        }
+        .mode-options {
+            display: flex;
+            gap: 15px;
+            margin: 15px 0;
+            flex-wrap: wrap;
+        }
+        .mode-option {
+            flex: 1;
+            min-width: 200px;
+            padding: 15px;
+            background: white;
+            border: 2px solid #ddd;
+            border-radius: 6px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .mode-option:hover {
+            border-color: #007bff;
+        }
+        .mode-option.selected {
+            border-color: #007bff;
+            background: #e7f3ff;
+        }
+        .mode-option h3 {
+            margin: 0 0 8px 0;
+            font-size: 1.1em;
+            color: #222;
+        }
+        .mode-option p {
+            margin: 0;
+            font-size: 0.9em;
+            color: #555;
+        }
+        .acs-info {
+            margin-top: 15px;
+            padding: 12px;
+            background: #fff3cd;
+            color: #333;
+            border-radius: 4px;
+            display: none;
+        }
+        .acs-info.visible {
+            display: block;
+        }
+        .acs-info.error {
+            background: #f8d7da;
+            color: #721c24;
+        }
+        .acs-info.success {
+            background: #d4edda;
+            color: #155724;
+        }
+        #connectBtn {
+            margin-top: 15px;
+            padding: 12px 30px;
+            font-size: 1em;
+            background: #007bff;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+        }
+        #connectBtn:hover {
+            background: #0056b3;
+        }
+        #connectBtn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 
 <body>
-    <div class="container is-max-tablet section is-large">
-        <article class="panel">
-            <p class="panel-heading">Live Call Translation Dial-in</p>
-            <div class="p-3 fieldset">
-                <div class="field">
-                    <label class="label">Name</label>
-                    <div class="control">
-                        <input class="input" type="text" id="name" placeholder="Name">
-                    </div>
-                </div>
-                <div class="field">
-                    <label class="label">Language</label>
-                    <div class="control">
-                        <div class="select is-fullwidth">
-                            <select id="language">
-                                <option value="ar">Arabic</option>
-                                <option value="es">Spanish</option>
-                                <option value="fr">French</option>
-                                <option value="de">German</option>
-                                <option value="vi">Vietnamese</option>
-                                <option value="zh">Chinese</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
+    <header>Real-Time Call Translation - User Dial-in</header>
+    <button id="enableAudio" style="display: none;">Enable Audio</button>
+    
+    <div class="mode-selector" id="modeSelector">
+        <h2>Select Connection Mode</h2>
+        <div class="mode-options">
+            <div class="mode-option" id="modeGenesys" onclick="selectMode('genesys')">
+                <h3>🎧 Genesys Simulator</h3>
+                <p>Simulate a Genesys AudioHook v2 caller connection.</p>
             </div>
-            <p class="panel-block" id="status">Waiting for auth...</p>
-            <div class="buttons panel-block">
-                <button class="button is-success" id="connect" disabled="true">Connect</button>
-                <button class="button is-danger" id="disconnect" disabled="true">Disconnect</button>
+            <div class="mode-option" id="modeGenesysLive" onclick="selectMode('genesysLive')">
+                <h3>📡 Genesys</h3>
+                <p>Connect via live Genesys Cloud AudioHook integration.</p>
             </div>
-        </article>
+            <div class="mode-option" id="modeACS" onclick="selectMode('acs')">
+                <h3>📞 ACS (Phone)</h3>
+                <p>Call via Azure Communication Services phone number.</p>
+            </div>
+            <div class="mode-option" id="modeDefault" onclick="selectMode('default')">
+                <h3>🌐 Default (Browser)</h3>
+                <p>Connect directly via browser. No phone required.</p>
+            </div>
+        </div>
+        <div class="acs-info" id="acsInfo"></div>
+
+        <div id="genesysLanguagePanel" style="display:none; margin: 12px 0;">
+            <label for="genesysLanguage" style="font-weight:600; color:#333; font-size:0.95em;">Caller Language:</label>
+            <select id="genesysLanguage" style="margin-left:8px; padding:4px 8px; font-size:0.95em; color:#222; background:#fff; border:1px solid #ccc; border-radius:4px;">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
+        <button id="connectBtn" onclick="connect()" disabled>Connect</button>
     </div>
-    <script src="./main.js"></script>
+    
+    <p id="status" style="display: none;"></p>
+    <script src="/public/helper.js"></script>
+    <script>
+        let selectedMode = null;
+
+
+        function selectMode(mode) {
+            selectedMode = mode;
+            document.querySelectorAll('.mode-option').forEach(el => el.classList.remove('selected'));
+            const modeMap = { genesys: 'modeGenesys', genesysLive: 'modeGenesysLive', acs: 'modeACS', default: 'modeDefault' };
+            document.getElementById(modeMap[mode])?.classList.add('selected');
+            
+            const acsInfo = document.getElementById('acsInfo');
+            const connectBtn = document.getElementById('connectBtn');
+            
+            // Reset panels
+            acsInfo.classList.remove('visible');
+            connectBtn.style.display = 'block';
+            connectBtn.disabled = true;
+            document.getElementById('genesysLanguagePanel').style.display = 'none';
+
+            if (mode === 'genesys') {
+                const panel = document.getElementById('genesysLanguagePanel');
+                const sel = document.getElementById('genesysLanguage');
+                panel.style.display = 'block';
+                // Populate once, then just show
+                if (sel.options.length <= 1) {
+                    fetch('/api/languages').then(r => r.json()).then(langs => {
+                        sel.innerHTML = '';
+                        Object.entries(langs).forEach(([code, name]) => {
+                            const opt = document.createElement('option');
+                            opt.value = code;
+                            opt.textContent = name;
+                            if (code === 'es-MX') opt.selected = true;
+                            sel.appendChild(opt);
+                        });
+                    });
+                }
+                connectBtn.disabled = false;
+            } else if (mode === 'acs') {
+                // Fetch ACS config to get the inbound number
+                acsInfo.className = 'acs-info visible';
+                acsInfo.innerHTML = '<strong>📞 ACS — Phone Call Configuration</strong><br><br>Loading ACS configuration...';
+                connectBtn.style.display = 'none';
+                fetch('/api/calls/acs/config').then(r => r.json()).then(config => {
+                    if (config.isConfigured && config.inboundNumber) {
+                        acsInfo.innerHTML = '<strong>📞 ACS — Phone Call Configuration</strong><br><br>' +
+                            'Call the following number to connect via Azure Communication Services:<br><br>' +
+                            '<code style="background:#e9ecef;padding:6px 10px;border-radius:4px;font-size:1.1em;word-break:break-all;">' + config.inboundNumber + '</code><br><br>' +
+                            'Once connected, the call will appear in the Agent page automatically.';
+                    } else {
+                        acsInfo.className = 'acs-info error visible';
+                        acsInfo.innerHTML = '<strong>📞 ACS — Phone Call Configuration</strong><br><br>ACS is not configured. Please set the ACS endpoint and inbound number in the application settings.';
+                    }
+                }).catch(() => {
+                    acsInfo.className = 'acs-info error visible';
+                    acsInfo.innerHTML = '<strong>📞 ACS — Phone Call Configuration</strong><br><br>Failed to load ACS configuration.';
+                });
+            } else if (mode === 'genesysLive') {
+                const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+                const genesysWsUrl = `${wsProto}//${location.host}/ws/genesys`;
+                acsInfo.className = 'acs-info visible';
+                acsInfo.innerHTML = '<strong>📡 Genesys Cloud — AudioHook Configuration</strong><br><br>' +
+                    'Configure your Genesys Cloud AudioHook integration with the following WebSocket URL:<br><br>' +
+                    '<code style="background:#e9ecef;padding:6px 10px;border-radius:4px;font-size:1.1em;word-break:break-all;">' + genesysWsUrl + '</code><br><br>' +
+                    'Once configured, initiate the call from Genesys Cloud. The call will appear in the Agent page automatically.';
+                connectBtn.style.display = 'none';
+            } else {
+                connectBtn.disabled = false;
+            }
+        }
+
+        async function connect() {
+            if (!selectedMode) return;
+            if (selectedMode === 'acs') return;
+            
+            document.getElementById('modeSelector').style.display = 'none';
+            const statusText = document.getElementById('status');
+            statusText.style.display = 'block';
+            
+            if (selectedMode === 'genesys') {
+                await connectGenesys();
+            } else {
+                await connectDefault();
+            }
+        }
+
+        async function connectDefault() {
+            const statusText = document.getElementById('status');
+            let audioEnabled = false;
+            let socket = null;
+
+            statusText.innerText = "Setting up audio...";
+            const sampleRate = 16000;
+            const voiceAgentNode = await setupAudioWorklet(sampleRate, (data) => {
+                if (audioEnabled && socket?.readyState === WebSocket.OPEN && data?.length > 0) {
+                    socket.send(JSON.stringify({
+                        type: "audio",
+                        data: btoa(String.fromCharCode(...data))
+                    }));
+                }
+            });
+
+            if (!voiceAgentNode) {
+                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page.</p>";
+                return;
+            }
+
+            const refresh = () => location.reload();
+            statusText.innerText = "Connecting to server...";
+            socket = new WebSocket("/api/user/ws");
+            socket.onclose = (event) => {
+                console.log("WebSocket closed:", event);
+                setTimeout(refresh, 1000);
+            };
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                socket.close();
+            };
+            socket.onopen = (event) => {
+                console.log("WebSocket opened:", event);
+                statusText.innerText = "Connected. Waiting for agent...";
+            };
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === "refresh" || message.type === "disconnect") refresh();
+                else if (message.type === "ping") {}
+                else if (message.type === "enable") {
+                    audioEnabled = true;
+                    statusText.innerText = "Speaking with agent...";
+                } else if (message.type === "audio") {
+                    voiceAgentNode.port.postMessage(atobInt16(message.data));
+                } else {
+                    console.warn("Unknown message type:", message);
+                }
+            };
+        }
+
+        // ---- µ-law codec (matches server-side MuLawConverter) ----
+        const MULAW_BIAS = 0x84;
+        const MULAW_CLIP = 32635;
+
+        function encodeMuLaw(sample) {
+            let sign = (sample >> 8) & 0x80;
+            if (sign !== 0) sample = -sample;
+            if (sample > MULAW_CLIP) sample = MULAW_CLIP;
+            sample += MULAW_BIAS;
+            let exponent = 7, mask = 0x4000;
+            for (; exponent > 0; exponent--) {
+                if ((sample & mask) !== 0) break;
+                mask >>= 1;
+            }
+            const mantissa = (sample >> (exponent + 3)) & 0x0F;
+            return ~(sign | (exponent << 4) | mantissa) & 0xFF;
+        }
+
+        // Build decompress table once
+        const muLawDecompressTable = new Int16Array(256);
+        for (let i = 0; i < 256; i++) {
+            let mu = ~i & 0xFF;
+            let sign = mu & 0x80;
+            let exponent = (mu >> 4) & 0x07;
+            let mantissa = mu & 0x0F;
+            let sample = ((mantissa << 3) + MULAW_BIAS) << exponent;
+            sample -= MULAW_BIAS;
+            muLawDecompressTable[i] = sign !== 0 ? -sample : sample;
+        }
+
+        // PCM 16kHz Int16 → µ-law 8kHz bytes (downsample 2x + encode)
+        function pcm16kToMuLaw8k(int16Array) {
+            const out = new Uint8Array(Math.floor(int16Array.length / 2));
+            for (let i = 0; i < out.length; i++) {
+                out[i] = encodeMuLaw(int16Array[i * 2]);
+            }
+            return out;
+        }
+
+        // µ-law 8kHz bytes → PCM 16kHz Int16 (decode + upsample 2x)
+        function muLaw8kToPcm16k(muLawData) {
+            const out = new Int16Array(muLawData.length * 2);
+            let prev = 0;
+            for (let i = 0; i < muLawData.length; i++) {
+                const sample = muLawDecompressTable[muLawData[i]];
+                const mid = (prev + sample) >> 1;
+                out[i * 2] = mid;
+                out[i * 2 + 1] = sample;
+                prev = sample;
+            }
+            return out;
+        }
+
+        // ---- Genesys AudioHook v2 Simulator ----
+        async function connectGenesys() {
+            const statusText = document.getElementById('status');
+            statusText.innerText = "Setting up audio...";
+            const callerLanguage = document.getElementById('genesysLanguage')?.value || 'es-MX';
+
+            const sampleRate = 16000;
+            let socket = null;
+            let audioEnabled = false;
+            let serverSeq = 0;
+            let seq = 0;
+            const sessionId = crypto.randomUUID();
+            const conversationId = "sim-" + crypto.randomUUID().substring(0, 8);
+
+            const voiceAgentNode = await setupAudioWorklet(sampleRate, (data) => {
+                if (!audioEnabled || !socket || socket.readyState !== WebSocket.OPEN) return;
+                if (!data || data.length === 0) return;
+                // data is Uint8Array of PCM 16kHz 16-bit LE bytes — convert to Int16 then µ-law 8kHz
+                const int16 = new Int16Array(data.buffer, data.byteOffset, data.byteLength / 2);
+                const muLaw = pcm16kToMuLaw8k(int16);
+                socket.send(muLaw.buffer);
+            });
+
+            if (!voiceAgentNode) {
+                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page.</p>";
+                return;
+            }
+
+            function sendText(msg) {
+                if (socket?.readyState === WebSocket.OPEN) {
+                    socket.send(JSON.stringify(msg));
+                }
+            }
+
+            const wsProto = location.protocol === "https:" ? "wss:" : "ws:";
+            const wsUrl = `${wsProto}//${location.host}/ws/genesys?sessionId=${encodeURIComponent(sessionId)}`;
+            statusText.innerText = "Connecting to Genesys endpoint...";
+            socket = new WebSocket(wsUrl);
+            socket.binaryType = "arraybuffer";
+
+            socket.onopen = () => {
+                console.log("[Genesys Sim] WebSocket opened, sending open message");
+                statusText.innerText = "Connected. Sending AudioHook open...";
+                sendText({
+                    version: "2",
+                    id: sessionId,
+                    type: "open",
+                    seq: ++seq,
+                    serverseq: serverSeq,
+                    position: "0:00:00.000",
+                    parameters: {
+                        organizationId: "sim-org",
+                        conversationId: conversationId,
+                        participant: {
+                            id: "sim-participant",
+                            ani: "+15551234567",
+                            dnis: "+15559876543"
+                        },
+                        media: [
+                            { type: "audio", format: "PCMU", channels: ["external"], rate: 8000 }
+                        ],
+                        inputVariables: {
+                            language: callerLanguage
+                        }
+                    }
+                });
+            };
+
+            socket.onmessage = (event) => {
+                if (event.data instanceof ArrayBuffer) {
+                    // Binary = µ-law 8kHz audio from server (translated)
+                    const muLaw = new Uint8Array(event.data);
+                    const pcm16k = muLaw8kToPcm16k(muLaw);
+                    voiceAgentNode.port.postMessage(pcm16k);
+                    return;
+                }
+
+                // Text = AudioHook protocol message
+                const msg = JSON.parse(event.data);
+                serverSeq = msg.seq || serverSeq;
+                console.log("[Genesys Sim] Received:", msg.type, msg);
+
+                if (msg.type === "opened") {
+                    audioEnabled = true;
+                    statusText.innerText = "🎧 Genesys Simulator — speaking (waiting for agent to connect from Agent page)...";
+                } else if (msg.type === "closed") {
+                    audioEnabled = false;
+                    statusText.innerText = "Call closed by server.";
+                    socket.close();
+                } else if (msg.type === "pong") {
+                    // heartbeat ack — nothing to do
+                } else if (msg.type === "disconnect" || msg.type === "error") {
+                    audioEnabled = false;
+                    statusText.innerText = "Disconnected: " + (msg.type === "error" ? JSON.stringify(msg.parameters) : "server disconnect");
+                    socket.close();
+                }
+            };
+
+            socket.onerror = (err) => {
+                console.error("[Genesys Sim] WebSocket error:", err);
+                statusText.innerText = "WebSocket error — see console.";
+            };
+
+            socket.onclose = () => {
+                audioEnabled = false;
+                console.log("[Genesys Sim] WebSocket closed");
+                if (statusText.innerText.indexOf("Disconnected") === -1 && statusText.innerText.indexOf("closed") === -1) {
+                    statusText.innerText = "Genesys connection closed.";
+                }
+            };
+
+            // Periodic ping keepalive
+            const pingInterval = setInterval(() => {
+                if (socket?.readyState !== WebSocket.OPEN) { clearInterval(pingInterval); return; }
+                sendText({
+                    version: "2",
+                    id: sessionId,
+                    type: "ping",
+                    seq: ++seq,
+                    serverseq: serverSeq,
+                    parameters: {}
+                });
+            }, 15000);
+        }
+
+        selectMode('genesys');
+    </script>
 </body>
 
 </html>

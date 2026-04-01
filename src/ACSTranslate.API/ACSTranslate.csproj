@@ -4,21 +4,24 @@
     <TargetFramework>net9.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
+    <NoWarn>$(NoWarn);OPENAI001;OPENAI002</NoWarn>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Azure.Communication.CallAutomation" Version="1.4.0-beta.1" />
-    <PackageReference Include="Azure.Communication.Identity" Version="1.3.1" />
     <PackageReference Include="Azure.Identity" Version="1.13.1" />
-    <PackageReference Include="Azure.Messaging.EventGrid" Version="4.28.0" />
     <PackageReference Include="Azure.Monitor.OpenTelemetry.AspNetCore" Version="1.2.0" />
-    <PackageReference Include="Azure.ResourceManager.EventGrid" Version="1.1.0-beta.5" />
-    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="9.0.0-rc.2.24474.3" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
-    <PackageReference Include="Microsoft.EntityFrameworkCore.SqlServer" Version="9.0.0" />
+    <PackageReference Include="Microsoft.ApplicationInsights.AspNetCore" Version="2.23.0" />
     <PackageReference Include="System.Threading.Tasks.Dataflow" Version="9.0.0" />
     <PackageReference Include="Azure.AI.Translation.Text" Version="1.0.0" />
     <PackageReference Include="Microsoft.CognitiveServices.Speech" Version="1.41.1" />
+    <PackageReference Include="Azure.AI.OpenAI" Version="2.1.0" />
+    <PackageReference Include="NAudio" Version="2.2.1" />
+    <PackageReference Include="Azure.Communication.CallAutomation" Version="1.4.0" />
+    <PackageReference Include="Azure.Communication.Identity" Version="1.3.1" />
+    <PackageReference Include="Azure.Messaging.EventGrid" Version="4.24.0" />
+    <PackageReference Include="Azure.ResourceManager.EventGrid" Version="1.1.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore" Version="9.0.0" />
+    <PackageReference Include="Microsoft.EntityFrameworkCore.InMemory" Version="9.0.0" />
   </ItemGroup>
 
 </Project>

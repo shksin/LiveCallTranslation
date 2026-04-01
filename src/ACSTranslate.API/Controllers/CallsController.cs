@@ -1,110 +1,110 @@
-using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
 
 namespace ACSTranslate;
 
 [Route("api/calls")]
 [ApiController]
-public class CallsController(
-    CallService _callService,
-    ACSService _acsService,
-    TranscribeService _transcribeService,
-    IAudioStorage _audioStorage,
-    ILogger<CallsController> _logger
-) : ControllerBase
+public class CallsController : ControllerBase
 {
-    [HttpPost("{callId}/log")]
-    public async Task<ActionResult> Log(Guid callId)
+    private readonly CallService _callService;
+    private readonly ACSService _acsService;
+    private readonly ILogger<CallsController> _logger;
+
+    public CallsController(
+        CallService callService,
+        ACSService acsService,
+        ILogger<CallsController> logger)
     {
-        using StreamReader bodyReader = new(Request.Body);
-        var body = await bodyReader.ReadToEndAsync();
-        _logger.LogInformation("Call {CallId} log: {Log}", callId, body);
+        _callService = callService;
+        _acsService = acsService;
+        _logger = logger;
+    }
+
+    [HttpGet("waiting")]
+    public async Task<ActionResult<IEnumerable<object>>> GetWaitingCalls()
+    {
+        var calls = await _callService.GetWaitingCallsAsync();
+        return Ok(calls.Select(c => new
+        {
+            c.Id,
+            c.CallerId,
+            c.CallReceived,
+            c.UserLanguage
+        }));
+    }
+
+    [HttpPost("{callId}/callback")]
+    public async Task<IActionResult> CallCallback(Guid callId)
+    {
+        using var reader = new StreamReader(Request.Body);
+        var body = await reader.ReadToEndAsync();
+        _logger.LogInformation("Call {CallId} callback: {Body}", callId, body);
+
+        // Parse ACS callback events to detect call disconnection
+        try
+        {
+            using var doc = System.Text.Json.JsonDocument.Parse(body);
+            var elements = doc.RootElement.ValueKind == System.Text.Json.JsonValueKind.Array
+                ? doc.RootElement.EnumerateArray()
+                : SingleEnumerable(doc.RootElement);
+
+            foreach (var evt in elements)
+            {
+                if (evt.TryGetProperty("type", out var typeProp))
+                {
+                    var eventType = typeProp.GetString();
+                    if (eventType == "Microsoft.Communication.CallDisconnected")
+                    {
+                        _logger.LogInformation("Call {CallId} disconnected via callback", callId);
+                        await _callService.SetCallStatusAsync(callId, CallStatus.Ended);
+                    }
+                }
+            }
+        }
+        catch (System.Text.Json.JsonException ex)
+        {
+            _logger.LogWarning(ex, "Failed to parse callback body for call {CallId}", callId);
+        }
+
         return Ok();
     }
-    [HttpGet]
-    public async Task<ActionResult<IEnumerable<CallViewModel>>> GetAvailableCalls()
+
+    [HttpGet("acs/config")]
+    public IActionResult GetACSConfig()
     {
-        return Ok(await _callService.GetAvailableCallsAsync());
+        return Ok(new
+        {
+            isConfigured = _acsService.IsConfigured,
+            inboundNumber = _acsService.IsConfigured ? _acsService.InboundNumber : null
+        });
     }
 
-    [HttpGet("events")]
-    public async Task GetCallEvents(CancellationToken cancellationToken)
+    [HttpGet("acs/token")]
+    public async Task<ActionResult> GetACSToken()
     {
-        Response.ContentType = "text/event-stream";
-        await foreach (var callEvent in _callService.GetCallEventsAsync(cancellationToken))
+        if (!_acsService.IsConfigured)
         {
-            await Response.WriteAsync($"data: {callEvent.ToJson()}\n\n", cancellationToken);
-            await Response.Body.FlushAsync(cancellationToken);
+            return BadRequest(new { error = "ACS is not configured" });
+        }
+
+        try
+        {
+            var token = await _acsService.GetACSTokenAsync();
+            return Ok(new
+            {
+                token = token.Token,
+                expiresOn = token.ExpiresOn
+            });
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Failed to get ACS token");
+            return StatusCode(500, new { error = "Failed to get ACS token" });
         }
     }
 
-    [HttpGet("{callId:guid}")]
-    public async Task<ActionResult<CallViewModel>> GetCall(Guid callId)
+    private static IEnumerable<System.Text.Json.JsonElement> SingleEnumerable(System.Text.Json.JsonElement element)
     {
-        return Ok(await _callService.GetCallAsync(callId));
+        yield return element;
     }
-
-    [HttpGet("{callId:guid}/transcription")]
-    public async Task GetCallTranscription(Guid callId, CancellationToken cancellationToken)
-    {
-        Response.ContentType = "text/event-stream";
-        await foreach (var message in _transcribeService.GetStreamer(callId).GetMessagesAsync(cancellationToken))
-        {
-            await Response.WriteAsync($"data: {TranscriptionEventModel.FromTranscribeRecord(message).ToJson()}\n\n", cancellationToken);
-            await Response.Body.FlushAsync(cancellationToken);
-        }
-    }
-
-    [HttpGet("{callId:guid}/transcription/{transcriptionId:guid}/audio/translated")]
-    public async Task<IActionResult> GetTranslatedTranscriptionAudio(Guid callId, Guid transcriptionId)
-    {
-        var audioStream = await _audioStorage.GetAudioStreamAsync(callId, transcriptionId, AudioType.Translated);
-        return File(audioStream, "audio/x-wav", $"{callId}_{transcriptionId}.wav");
-    }
-    [HttpGet("{callId:guid}/transcription/{transcriptionId:guid}/audio/native")]
-    public Task<IActionResult> GetNativeTranscriptionAudio(Guid callId, Guid transcriptionId)
-    {
-        throw new NotImplementedException();
-    }
-
-    [HttpGet("acsauth")]
-    public async Task<ActionResult<AcsAuth>> GetAcsAuth()
-    {
-        var serverId = await _acsService.GetServerApplicationACSIdentity();
-        var token = await _acsService.GetACSToken();
-        return Ok(new AcsAuth(token.Token, token.ExpiresOn, serverId));
-    }
-
-    [HttpGet("user/voip/auth")]
-    public async Task<ActionResult<UserVoipAuth>> GetUserVoipAuth()
-    {
-        var userApp = await _acsService.GetUserApplicationACSIdentity();
-        var token = await _acsService.GetACSToken();
-        return Ok(new UserVoipAuth(token.Token, token.ExpiresOn, userApp));
-    }
-}
-
-public record AcsAuth(string Token, DateTimeOffset ExpiresOn, string ServerId);
-public record UserVoipAuth(string Token, DateTimeOffset ExpiresOn, string EndpointToDial);
-public record TranscriptionEventModel(
-    string Id,
-    DateTimeOffset SentAt,
-    DateTimeOffset? FinalizedAt,
-    string User,
-    string NativeText,
-    string TranslatedText
-)
-{
-    private static readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web);
-    public static TranscriptionEventModel FromTranscribeRecord(TranscribeRecord record)
-        => new(
-            record.ID.ToString(),
-            record.SentAt,
-            record.FinalizedAt,
-            record.User.ToString(),
-            record.NativeText,
-            record.TranslatedText
-        );
-    public string ToJson()
-        => JsonSerializer.Serialize(this, _options);
 }

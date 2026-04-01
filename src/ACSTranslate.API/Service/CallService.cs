@@ -1,36 +1,33 @@
-using System.Runtime.CompilerServices;
 using System.Text.Json;
-using System.Threading.Tasks.Dataflow;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 
 namespace ACSTranslate;
 
-public class CallService(
-    IDbContextFactory<OrchestratorContext> _dbFactory,
-    ACSService _acsService,
-    InboundConfig _config,
-    ILogger<CallService> _logger
-)
+public class CallService
 {
-    public async Task<IEnumerable<CallViewModel>> GetAvailableCallsAsync()
+    private readonly IDbContextFactory<OrchestratorContext> _dbFactory;
+    private readonly ACSService _acsService;
+    private readonly InboundConfig _config;
+    private readonly ILogger<CallService> _logger;
+
+    public CallService(
+        IDbContextFactory<OrchestratorContext> dbFactory,
+        ACSService acsService,
+        InboundConfig config,
+        ILogger<CallService> logger)
     {
-        using var db = _dbFactory.CreateDbContext();
-        return await db.Calls
-                .Where(x => x.Status == CallStatus.Waiting)
-                .Select(x => new CallViewModel(x))
-                .ToListAsync();
+        _dbFactory = dbFactory;
+        _acsService = acsService;
+        _config = config;
+        _logger = logger;
     }
 
-    public async Task<CallViewModel> GetCallAsync(Guid callId)
-    {
-        using var db = _dbFactory.CreateDbContext();
-        return new CallViewModel(
-                await db.Calls.FindAsync(callId)
-                ?? throw new KeyNotFoundException()
-            );
-    }
-
-    public async Task<CallViewModel> CreateCallAsync(string incomingCallContext, string callerId, TranslationConfig config)
+    public async Task<Call> CreateCallAsync(string incomingCallContext, string callerId, string language)
     {
         using var db = _dbFactory.CreateDbContext();
         var call = new Call
@@ -39,93 +36,72 @@ public class CallService(
             Status = CallStatus.New,
             CallerId = callerId,
             CallReceived = DateTimeOffset.UtcNow,
-            UserLanguage = config.UserLanguage
+            UserLanguage = language,
+            IncomingCallContext = incomingCallContext
         };
         db.Calls.Add(call);
         await db.SaveChangesAsync();
 
-        var callbackEndpoint = new Uri(_config.BaseUri, $"/api/calls/{call.Id}/log");
-        var websocketEndpoint = new Uri(_config.BaseWsUri, $"/ws/audio/{call.Id}/user");
-        await _acsService.AnswerCallAsync(incomingCallContext, callbackEndpoint, websocketEndpoint);
+        // Answer the call with media streaming configuration
+        var callbackEndpoint = new Uri(_config.BaseUri, $"/api/calls/{call.Id}/callback");
+        var webSocketUri = new Uri(_config.BaseUri.ToString().Replace("https://", "wss://").Replace("http://", "ws://") + $"/ws/acs/{call.Id}");
+        var callConnectionId = await _acsService.AnswerCallAsync(incomingCallContext, callbackEndpoint, webSocketUri);
+        
+        // Store the call connection ID
+        call.CallConnectionId = callConnectionId;
+        await db.SaveChangesAsync();
 
-        var callModel = new CallViewModel(call);
-        RaiseCallChangeEvent(callModel);
-        return callModel;
-    }
-
-    public async Task<CallViewModel> ConnectCallAsync(Guid callId, string incomingCallContext)
-    {
-        var call = await SetCallToConnecting(callId);
-
-        var callbackEndpoint = new Uri(_config.BaseUri, $"/api/calls/{call.Id}/log");
-        var websocketEndpoint = new Uri(_config.BaseWsUri, $"/ws/audio/{call.Id}/agent");
-
-        await _acsService.AnswerCallAsync(incomingCallContext, callbackEndpoint, websocketEndpoint);
-
+        await SetCallStatusAsync(call.Id, CallStatus.Waiting);
+        
+        _logger.LogInformation("Created and answered call {CallId} from {CallerId}", call.Id, callerId);
         return call;
     }
 
-    public async Task<CallViewModel> SetCallToWaiting(Guid callId)
-        => await SetCallState(callId, CallStatus.New, CallStatus.Waiting);
-
-    public async Task<CallViewModel> SetCallToConnecting(Guid callId)
-        => await SetCallState(callId, CallStatus.Waiting, CallStatus.Connecting);
-    public async Task<CallViewModel> SetCallToAnswered(Guid callId)
-        => await SetCallState(callId, CallStatus.Connecting, CallStatus.Answered);
-
-    private async Task<CallViewModel> SetCallState(Guid callId, CallStatus expectedStatus, CallStatus newStatus)
+    /// <summary>
+    /// Create a call record for a Genesys AudioHook session (no ACS answer needed).
+    /// </summary>
+    public async Task<Call> CreateGenesysCallAsync(string conversationId, string userLanguage)
     {
         using var db = _dbFactory.CreateDbContext();
-        var call = await db.Calls.FindAsync(callId) ?? throw new KeyNotFoundException();
-
-        if (call.Status == newStatus) return new CallViewModel(call);
-        if (call.Status != expectedStatus) throw new Exception($"Call can not be set to {newStatus}");
-
-        _logger.LogInformation("Setting call {CallId} from {OldStatus} to {NewStatus}", callId, call.Status, newStatus);
-
-        call.Status = newStatus;
+        var call = new Call
+        {
+            Id = Guid.NewGuid(),
+            Status = CallStatus.Waiting,
+            CallerId = $"genesys:{conversationId}",
+            CallReceived = DateTimeOffset.UtcNow,
+            UserLanguage = userLanguage,
+            IncomingCallContext = $"genesys:{conversationId}"
+        };
+        db.Calls.Add(call);
         await db.SaveChangesAsync();
-
-        var callModel = new CallViewModel(call);
-        RaiseCallChangeEvent(callModel);
-        return callModel;
+        _logger.LogInformation("Created Genesys call {CallId} for conversation {ConversationId}", call.Id, conversationId);
+        return call;
     }
 
-    // TODO: Refactor into an eventing service, also, fix lack of cloning
-    private readonly BroadcastBlock<CallViewModel> _callEventBlock = new(x => x);
-    // TODO: Do we need to filter to only available calls?
-    private void RaiseCallChangeEvent(CallViewModel call)
-        => _callEventBlock.Post(call);
-
-    public async IAsyncEnumerable<CallViewModel> GetCallEventsAsync([EnumeratorCancellation] CancellationToken cancellationToken)
+    public async Task<Call?> GetCallAsync(Guid callId)
     {
-        var bufferBlock = new BufferBlock<CallViewModel>();
-        using var link = _callEventBlock.LinkTo(bufferBlock);
-        // TODO: Do we need to send all calls or just available calls?
-        foreach (var call in await GetAvailableCallsAsync())
+        using var db = _dbFactory.CreateDbContext();
+        return await db.Calls.FindAsync(callId);
+    }
+
+    public async Task<IEnumerable<Call>> GetWaitingCallsAsync()
+    {
+        using var db = _dbFactory.CreateDbContext();
+        return await db.Calls
+            .Where(c => c.Status == CallStatus.Waiting)
+            .OrderBy(c => c.CallReceived)
+            .ToListAsync();
+    }
+
+    public async Task SetCallStatusAsync(Guid callId, CallStatus status)
+    {
+        using var db = _dbFactory.CreateDbContext();
+        var call = await db.Calls.FindAsync(callId);
+        if (call != null)
         {
-            yield return call;
+            call.Status = status;
+            await db.SaveChangesAsync();
+            _logger.LogInformation("Call {CallId} status changed to {Status}", callId, status);
         }
-        await foreach (var call in bufferBlock.ReceiveAllAsync(cancellationToken))
-        {
-            yield return call;
-        }
-    }
-}
-
-public record CallViewModel(Guid Id, string Status, string CallerId, DateTimeOffset CallReceived, string? UserLanguage = null)
-{
-    public CallViewModel(Call call)
-        : this(call.Id, call.Status.ToString(), MaskPhoneNumber(call.CallerId) ?? "Unknown", call.CallReceived, call.UserLanguage)
-    {
-    }
-    private static readonly JsonSerializerOptions _options = new(JsonSerializerDefaults.Web);
-    public string ToJson()
-        => JsonSerializer.Serialize(this, _options);
-
-    private static string? MaskPhoneNumber(string? phoneNumber)
-    {
-        if (string.IsNullOrWhiteSpace(phoneNumber) || !phoneNumber.Trim().Trim('+').All(char.IsNumber)) return phoneNumber;
-        return phoneNumber?.Length > 6 ? $"{phoneNumber[..4]}{new string('*', phoneNumber.Length - 7)}{phoneNumber[^3..]}" : phoneNumber;
     }
 }
