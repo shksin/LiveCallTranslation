@@ -124,8 +124,13 @@
                         const callId = e.target.dataset.callId;
                         e.target.innerText = "Connecting...";
                         e.target.disabled = true;
-                        
+
                         if (callId && socket?.readyState === WebSocket.OPEN) {
+                            // Pre-select the caller language dropdown to match what was stored on the call
+                            if (call.userLanguage) {
+                                const callerLangSelect = document.getElementById("callerLang");
+                                if (callerLangSelect) callerLangSelect.value = call.userLanguage;
+                            }
                             const userLanguage = document.getElementById("callerLang").value;
                             const agentLanguage = document.getElementById("agentLang").value;
                             socket.send(JSON.stringify({

@@ -115,7 +115,14 @@
             </div>
         </div>
         <div class="acs-info" id="acsInfo"></div>
-        
+
+        <div id="genesysLanguagePanel" style="display:none; margin: 12px 0;">
+            <label for="genesysLanguage" style="font-weight:600;">Caller Language:</label>
+            <select id="genesysLanguage" style="margin-left:8px; padding:4px 8px; font-size:1em;">
+                <option value="">Loading...</option>
+            </select>
+        </div>
+
         <button id="connectBtn" onclick="connect()" disabled>Connect</button>
     </div>
     
@@ -138,8 +145,27 @@
             acsInfo.classList.remove('visible');
             connectBtn.style.display = 'block';
             connectBtn.disabled = true;
+            document.getElementById('genesysLanguagePanel').style.display = 'none';
 
-            if (mode === 'acs') {
+            if (mode === 'genesys') {
+                const panel = document.getElementById('genesysLanguagePanel');
+                const sel = document.getElementById('genesysLanguage');
+                panel.style.display = 'block';
+                // Populate once, then just show
+                if (sel.options.length <= 1) {
+                    fetch('/api/languages').then(r => r.json()).then(langs => {
+                        sel.innerHTML = '';
+                        Object.entries(langs).forEach(([code, name]) => {
+                            const opt = document.createElement('option');
+                            opt.value = code;
+                            opt.textContent = name;
+                            if (code === 'es-MX') opt.selected = true;
+                            sel.appendChild(opt);
+                        });
+                    });
+                }
+                connectBtn.disabled = false;
+            } else if (mode === 'acs') {
                 // Fetch ACS config to get the inbound number
                 acsInfo.className = 'acs-info visible';
                 acsInfo.innerHTML = '<strong>📞 ACS — Phone Call Configuration</strong><br><br>Loading ACS configuration...';
@@ -295,6 +321,7 @@
         async function connectGenesys() {
             const statusText = document.getElementById('status');
             statusText.innerText = "Setting up audio...";
+            const callerLanguage = document.getElementById('genesysLanguage')?.value || 'es-MX';
 
             const sampleRate = 16000;
             let socket = null;
@@ -350,7 +377,10 @@
                         },
                         media: [
                             { type: "audio", format: "PCMU", channels: ["external"], rate: 8000 }
-                        ]
+                        ],
+                        inputVariables: {
+                            language: callerLanguage
+                        }
                     }
                 });
             };

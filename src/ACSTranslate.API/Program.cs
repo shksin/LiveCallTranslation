@@ -150,6 +150,8 @@ app.MapGet("/ws/genesys", async (
     await handler.HandleGenesysStreamAsync(sessionId, webSocket, context.RequestAborted);
 });
 
+app.MapGet("/api/languages", () => Results.Ok(LanguageConfig.ListLanguages()));
+
 app.MapGet("/", () => "Ok.");
 var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());
 

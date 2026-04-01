@@ -104,8 +104,10 @@ public class GenesysWebSocketHandler
                     _logger.LogInformation("Genesys open message for session {SessionId}: {Json}", sessionId, json);
                     bridge.ProcessOpen(doc);
 
-                    // Create a call record so the agent UI can see it
-                    // Language will be selected by the agent from the UI dropdown when connecting
+                    // Create a call record so the agent UI can see it.
+                    // CallerLanguage comes from inputVariables.language in the open message —
+                    // set by Genesys Architect or by the Simulator's language dropdown.
+                    // Falls back to en-US if not provided.
                     var userLanguage = bridge.CallerLanguage ?? "en-US";
                     var call = await CreateGenesysCallAsync(bridge.ConversationId ?? sessionId, userLanguage);
                     callId = call.Id;
