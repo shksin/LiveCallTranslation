@@ -16,11 +16,17 @@ public class TranslatorInstance : IDisposable
         LanguageConfig inputLanguage,
         LanguageConfig outputLanguage,
         string authToken,
-        string region
+        string region,
+        string? endpoint = null
     )
     {
+        var endpointUri = new Uri(!string.IsNullOrEmpty(endpoint)
+            ? endpoint
+            : $"wss://{region}.stt.speech.microsoft.com/speech/universal/v2");
+
         // Set up translator
-        _translationConfig = SpeechTranslationConfig.FromAuthorizationToken(authToken, region);
+        _translationConfig = SpeechTranslationConfig.FromEndpoint(endpointUri, "");
+        _translationConfig.AuthorizationToken = authToken;
         _translationConfig.SpeechRecognitionLanguage = inputLanguage.Code;
         _translationConfig.AddTargetLanguage(outputLanguage.ShortCode);
         _translationConfig.VoiceName = outputLanguage.Voice;
@@ -31,8 +37,12 @@ public class TranslatorInstance : IDisposable
         var audioInput = AudioConfig.FromStreamInput(_inputStream);
         _recognizer = new TranslationRecognizer(_translationConfig, audioInput);
 
-        // Set up speech to text
-        var speechOutputConfig = SpeechConfig.FromAuthorizationToken(authToken, region);
+        // Set up speech synthesizer
+        var ttsEndpointUri = new Uri(!string.IsNullOrEmpty(endpoint)
+            ? endpoint
+            : $"wss://{region}.tts.speech.microsoft.com/cognitiveservices/websocket/v2");
+        var speechOutputConfig = SpeechConfig.FromEndpoint(ttsEndpointUri, "");
+        speechOutputConfig.AuthorizationToken = authToken;
         speechOutputConfig.SpeechSynthesisVoiceName = outputLanguage.Voice;
         speechOutputConfig.SetSpeechSynthesisOutputFormat(_audioFormat);
 
@@ -46,7 +56,7 @@ public class TranslatorInstance : IDisposable
     )
     {
         var authToken = await auth.GetAuthTokenAsync();
-        var instance = new TranslatorInstance(inputLanguage, outputLanguage, authToken, auth.Region);
+        var instance = new TranslatorInstance(inputLanguage, outputLanguage, authToken, auth.Region, auth.Endpoint);
         await instance.StartAsync();
         return instance;
     }

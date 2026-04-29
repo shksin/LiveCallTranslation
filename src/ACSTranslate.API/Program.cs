@@ -1,9 +1,11 @@
 using Azure.Core;
 using Azure.Identity;
+using Azure.Monitor.OpenTelemetry.AspNetCore;
 using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
+builder.Services.AddOpenTelemetry().UseAzureMonitor();
 builder.Services.AddConfig().MapConfigPart(x => x.AzureAISpeech);
 
 builder.Services.AddSingleton<WebSocketManager>();
@@ -38,7 +40,7 @@ app.Use(async (context, next) =>
     else
     {
         context.RequestServices.GetRequiredService<ILogger<Program>>()
-            .LogError("!!! No auth code has been configured, skipping authentication !!!");
+            .LogWarning("!!! No auth code has been configured, skipping authentication !!!");
     }
     await next();
 });
@@ -62,6 +64,9 @@ app.MapGet("/api/agent/ws", async (
     => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectAgentAsync(ws, ct))
 );
 app.MapGet("/", () => "Ok.");
-var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());
+var auth = app.Services.GetRequiredService<CognitiveServicesAuth>();
+await auth.ValidateConnectivityAsync();
+await auth.ValidateAuthTokenAsync();
+var tokenWarmer = Task.Run(async () => await auth.KeepWarmAsync());
 
 app.Run();

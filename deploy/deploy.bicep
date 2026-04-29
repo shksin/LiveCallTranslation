@@ -111,6 +111,10 @@ resource appService 'Microsoft.Web/sites@2024-04-01' = {
           value: aiSpeech.id
         }
         {
+          name: 'AzureAISpeech__Endpoint'
+          value: aiSpeech.properties.endpoint
+        }
+        {
           name: 'AuthCode'
           value: authCode
         }
