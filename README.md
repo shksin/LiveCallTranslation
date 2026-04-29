@@ -124,4 +124,4 @@ For ACS and EventGrid RBAC requirements, see [ACS Integration](ACS_INTEGRATION.m
     ```sh
     dotnet publish -c Release -o ./bin/Publish -r win-x64 --self-contained true
     ```
-5. In VS Code deploy the contents of the `./bin/Publish` folder to the Web App using the [Azure App Service extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-azureappservice).
+5. In VS Code deploy the contents of the `./bin/Publish` folder to the Web App using the [Azure App Service extension](https://marketplace.visualstudio.com/items?itemName=ms-azuretools.vscode-azureappservice).cd
