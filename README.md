@@ -18,6 +18,7 @@ A real-time multilingual communication capability between non-English-speaking c
 4. Copy *appsettings.json* to *appsettings.Development.json* and fill in the following values:
 - `AzureAISpeech` -> `ResourceID`: Navigate to your Azure Speech resource in the Azure portal -> Properties -> Resource ID
 - `AzureAISpeech` -> `Region`: Region where your Azure Speech resource is deployed
+- `AzureAISpeech` -> `Endpoint`: (Optional) The full endpoint URL for your Azure Speech resource (e.g. `https://<name>.cognitiveservices.azure.com/`). Required when using a private endpoint. If omitted, the region-based default endpoint is used.
 - `AuthCode`: Required only if you want to enable authentication on the user and agent interfaces. To access the site you will need to provide the auth code as a query parameter like `?code=<AuthCode>`. You can generate a random code or use a simple one for testing purposes.
 
 5. To run the application locally, cd to `src/ACSTranslate.API` and execute the following command:
@@ -38,6 +39,7 @@ A real-time multilingual communication capability between non-English-speaking c
 3. Set the following environment variables in the Web App Configuration:
     - `AzureAISpeech__ResourceID`: Navigate to your Azure Speech resource in the Azure portal -> Properties -> Resource ID
     - `AzureAISpeech__Region`: Region where your Azure Speech resource is deployed
+    - `AzureAISpeech__Endpoint`: (Optional) The full endpoint URL for your Azure Speech resource (e.g. `https://<name>.cognitiveservices.azure.com/`). Required when using a private endpoint. If omitted, the region-based default endpoint is used.
     - `AuthCode`: Required only if you want to enable authentication on the user and agent interfaces. To access the site you will need to provide the auth code as a query parameter like `?code=<AuthCode>`. You can generate a random code or use a simple one for testing purposes.
 4. Publish the application locally, cd to `src/ACSTranslate.API` and execute the following command:
     ```sh
