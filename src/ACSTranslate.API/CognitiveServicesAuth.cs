@@ -12,13 +12,14 @@ public class CognitiveServicesAuth(
     private string? _cachedToken;
     private static readonly TimeSpan _skew = TimeSpan.FromMinutes(5);
     public string Region => _config.Region;
-    public string? Endpoint => _config.Endpoint;
+    public string Endpoint => _config.Endpoint;
 
     public async Task ValidateConnectivityAsync(CancellationToken ct = default)
     {
-        string host = !string.IsNullOrEmpty(_config.Endpoint)
-            ? new Uri(_config.Endpoint).Host
-            : $"{_config.Region}.cognitiveservices.azure.com";
+        if (string.IsNullOrEmpty(_config.Endpoint))
+            throw new InvalidOperationException("AzureAISpeech:Endpoint is required. Set it to the Cognitive Services endpoint URL.");
+
+        var host = new Uri(_config.Endpoint).Host;
 
         try
         {
@@ -35,38 +36,39 @@ public class CognitiveServicesAuth(
     public async Task ValidateAuthTokenAsync(CancellationToken ct = default)
     {
         var token = await GetAuthTokenAsync(ct);
-        var endpoint = !string.IsNullOrEmpty(_config.Endpoint)
-            ? _config.Endpoint
-            : $"wss://{_config.Region}.stt.speech.microsoft.com/speech/universal/v2";
+
+        // Use FromEndpoint with the documented private endpoint TTS path.
+        var host = new Uri(_config.Endpoint).Host;
+        var ttsEndpoint = $"wss://{host}/tts/cognitiveservices/v1";
 
         try
         {
-            var speechConfig = SpeechConfig.FromEndpoint(new Uri(endpoint), "");
+            var speechConfig = SpeechConfig.FromEndpoint(new Uri(ttsEndpoint));
             speechConfig.AuthorizationToken = token;
 
-            using var recognizer = new SpeechRecognizer(speechConfig);
-            var result = await recognizer.RecognizeOnceAsync();
+            using var synthesizer = new SpeechSynthesizer(speechConfig, null);
+            var result = await synthesizer.SpeakTextAsync("");
 
             if (result.Reason == ResultReason.Canceled)
             {
-                var cancellation = CancellationDetails.FromResult(result);
+                var cancellation = SpeechSynthesisCancellationDetails.FromResult(result);
                 if (cancellation.ErrorCode == CancellationErrorCode.ConnectionFailure
                     || cancellation.ErrorCode == CancellationErrorCode.AuthenticationFailure)
                 {
                     _logger.LogError(
                         "SpeechService auth token validation failed. Endpoint: {Endpoint}, ErrorCode: {ErrorCode}, Details: {Details}",
-                        endpoint, cancellation.ErrorCode, cancellation.ErrorDetails);
+                        ttsEndpoint, cancellation.ErrorCode, cancellation.ErrorDetails);
                     return;
                 }
             }
 
-            _logger.LogInformation("SpeechService auth token validated successfully against endpoint: {Endpoint}", endpoint);
+            _logger.LogInformation("SpeechService auth token validated successfully against endpoint: {Endpoint}", ttsEndpoint);
         }
         catch (Exception ex)
         {
             _logger.LogError(ex,
-                "SpeechService auth token validation failed with exception. Endpoint: {Endpoint}",
-                endpoint);
+                "SpeechService auth token validation failed with exception. Endpoint: {Endpoint}, Message: {Message}, StackTrace: {StackTrace}",
+                ttsEndpoint, ex.Message, ex.ToString());
         }
     }
 
@@ -102,7 +104,7 @@ public class CognitiveServicesAuth(
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Error warming token");
+                _logger.LogError(ex, "Error warming token. Message: {Message}, StackTrace: {StackTrace}", ex.Message, ex.ToString());
             }
             await Task.Delay(TimeSpan.FromMinutes(5));
         }

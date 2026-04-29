@@ -1,3 +1,4 @@
 {
-    "appService.deploySubpath": "src\\ACSTranslate.API\\bin\\Publish"
+    "appService.deploySubpath": "src\\ACSTranslate.API\\bin\\Publish",
+    "appService.defaultWebAppToDeploy": "/subscriptions/c6a4ffe5-6f74-4846-b4e1-57386c4b7935/resourceGroups/rg-live-call-translation-ebc/providers/Microsoft.Web/sites/demo-backend-hf3zk4mzgfnto"
 }

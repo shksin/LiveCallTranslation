@@ -6,7 +6,7 @@ public record Config (
 public record AzureAISpeechConfig (
     string ResourceID,
     string Region,
-    string? Endpoint = null
+    string Endpoint
 );
 public static class ConfigExtensions
 {

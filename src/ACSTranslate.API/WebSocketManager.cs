@@ -41,7 +41,7 @@ public class WebSocketManager(ILogger<WebSocketManager> _logger)
             catch (Exception e)
             {
                 // Catch it if it is actually an error
-                _logger.LogError(e, "Websocket error");
+                _logger.LogError(e, "Websocket error. Message: {Message}, StackTrace: {StackTrace}", e.Message, e.ToString());
                 if (webSocket.State != WebSocketState.Closed && webSocket.State != WebSocketState.Aborted)
                 {
                     await webSocket.CloseAsync(WebSocketCloseStatus.NormalClosure, "Closing", CancellationToken.None);

@@ -53,6 +53,7 @@
                 statusText.innerText = "Connected. Waiting for agent...";
             };
             socket.onmessage = (event) => {
+                console.log("Message received:", event);
                 const message = JSON.parse(event.data);
                 if (message.type === "refresh" || message.type === "disconnect") refresh();
                 else if (message.type === "ping") {}

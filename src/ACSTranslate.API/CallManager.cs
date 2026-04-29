@@ -187,7 +187,7 @@ public class CallManager(
                         }
                         catch (Exception e)
                         {
-                            _logger.LogError(e, "Error during call {CallId}", callId);
+                            _logger.LogError(e, "Error during call {CallId}. Message: {Message}, StackTrace: {StackTrace}", callId, e.Message, e.ToString());
                         }
                         finally
                         {
