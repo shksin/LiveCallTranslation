@@ -1,0 +1,278 @@
+:root {
+    --bg: #0f1115;
+    --panel: #1c2027;
+    --panel-alt: #242a33;
+    --accent: #3b82f6;
+    --accent-alt: #2563eb;
+    --border: #2d3642;
+    --text: #e5eaf1;
+    --text-dim: #a4b0bf;
+    --danger: #dc2626;
+    --danger-alt: #b52020;
+    font-family: system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, sans-serif;
+}
+* { box-sizing: border-box; }
+body,html {
+    margin:0; padding:0;
+    background: var(--bg);
+    color: var(--text);
+    height:100%;
+}
+header {
+    height:56px;
+    width: 100%;
+    display:flex;
+    align-items:center;
+    padding:0 20px;
+    background: linear-gradient(90deg,#1f2933,#222b37 60%,#1d2530);
+    font-size:1.1rem;
+    font-weight:600;
+    letter-spacing:.5px;
+    border-bottom:1px solid var(--border);
+}
+main {
+    height: calc(100vh - 56px);
+    display: flex;
+    overflow: hidden;
+}
+#callsPane {
+    width: 260px;
+    background: var(--panel);
+    border-right:1px solid var(--border);
+    display:flex;
+    flex-direction:column;
+}
+#callsPane h2 {
+    margin:14px 16px 8px;
+    font-size:.85rem;
+    text-transform:uppercase;
+    letter-spacing:.08em;
+    font-weight:600;
+    color: var(--text-dim);
+}
+.call-list {
+    flex:1;
+    overflow:auto;
+    padding:4px 8px 12px;
+    display:flex;
+    flex-direction:column;
+    gap:8px;
+}
+.call-item {
+    background: var(--panel-alt);
+    padding:10px 10px 12px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    display:grid;
+    gap:8px;
+    align-items:center;
+}
+.call-id {
+    font-size:.8rem;
+    font-family: ui-monospace, monospace;
+    color: var(--text-dim);
+}
+.call-item button {
+    background: var(--accent);
+    color: #fff;
+    border: none;
+    font-size:.7rem;
+    letter-spacing:.05em;
+    padding:6px 10px;
+    border-radius:4px;
+    cursor:pointer;
+}
+.call-item button:hover {
+    background: var(--accent-alt);
+}
+button.disconnect {
+    background: var(--danger);
+    color: #fff;
+    border: none;
+    font-size:.7rem;
+    letter-spacing:.05em;
+    padding:6px 10px;
+    border-radius:4px;
+    cursor:pointer;
+}
+button.disconnect:hover {
+    background: var(--danger-alt);
+}
+#centerPane {
+    flex:1;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    position:relative;
+}
+#configPanel {
+    padding:14px 18px 10px;
+    background: var(--panel);
+    border-bottom:1px solid var(--border);
+    display:grid;
+    gap:14px 22px;
+    align-items:end;
+}
+#configPanel .field {
+    display:flex;
+    flex-direction:column;
+    gap:4px;
+    min-width:160px;
+}
+#configPanel label {
+    font-size:.65rem;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.09em;
+    color: var(--text-dim);
+}
+select {
+    background: var(--panel-alt);
+    color: var(--text);
+    border:1px solid var(--border);
+    border-radius:4px;
+    padding:6px 8px;
+    font-size:.8rem;
+}
+#transcriptContainer {
+    flex:1;
+    position:relative;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+}
+#transcriptHeader {
+    display:grid;
+    grid-template-columns: 90px 90px 1fr 1fr;
+    gap:8px;
+    padding:10px 16px 8px;
+    font-size:.65rem;
+    font-weight:600;
+    letter-spacing:.08em;
+    text-transform:uppercase;
+    color: var(--text-dim);
+    background: linear-gradient(#1b222b,#191f27);
+    border-bottom:1px solid var(--border);
+}
+#transcript {
+    flex:1;
+    overflow:auto;
+    padding:8px 0 24px;
+    scrollbar-width:thin;
+}
+.trans-row {
+    display:grid;
+    grid-template-columns: 90px 90px 1fr 1fr;
+    gap:8px;
+    padding:6px 16px 8px;
+    font-size:.78rem;
+    line-height:1.25rem;
+    border-bottom:1px solid #202832;
+}
+.trans-row.agent{
+    background:#181e25;
+}
+.trans-row .time {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size:.7rem;
+    color: var(--text-dim);
+    padding-top:2px;
+}
+.trans-row .role {
+    font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+    font-size:.7rem;
+    color: var(--text-dim);
+    padding-top:2px;
+    font-weight: bold;
+}
+.trans-row .translated {
+    color:#ffffff;
+    font-weight:500;
+}
+.trans-row .original {
+    color:#b6c2cf;
+    font-style:italic;
+}
+.status-bar {
+    position:absolute;
+    bottom:0;
+    left:0;
+    right:0;
+    height:28px;
+    background:rgba(26,32,40,.9);
+    backdrop-filter: blur(6px);
+    border-top:1px solid var(--border);
+    display:flex;
+    align-items:center;
+    gap:18px;
+    padding:0 14px;
+    font-size:.65rem;
+    color: var(--text-dim);
+    letter-spacing:.05em;
+}
+.empty-hint {
+    opacity:.55;
+    text-align:center;
+    padding:40px 20px;
+    font-size:.8rem;
+}
+.badge {
+    display:inline-block;
+    padding:2px 6px 3px;
+    background: var(--accent);
+    color:#fff;
+    border-radius:10px;
+    font-size:.55rem;
+    letter-spacing:.06em;
+    font-weight:600;
+    margin-left:4px;
+    vertical-align:middle;
+}
+.muted {
+    opacity:.4;
+    font-style:italic;
+}
+.audio-options {
+    margin:0;
+    padding:10px 12px 12px;
+    border:1px solid var(--border);
+    border-radius:6px;
+    background: var(--panel-alt);
+    display:grid;
+    gap:8px 16px;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    min-width:250px;
+}
+.audio-options legend {
+    padding:0 4px;
+    font-size:.65rem;
+    font-weight:600;
+    text-transform:uppercase;
+    letter-spacing:.09em;
+    color: var(--text-dim);
+    margin-bottom:4px;
+}
+.audio-options .field {
+    /* Override generic .field for compact inline checkbox layout */
+    flex-direction:row;
+    align-items:center;
+    gap:8px;
+    min-width:0;
+    background:transparent;
+    padding:2px 0;
+}
+.audio-options .field label {
+    font-size:.7rem;
+    font-weight:500;
+    text-transform:none;
+    letter-spacing:.02em;
+    color: var(--text);
+    cursor:pointer;
+}
+.audio-options input[type=checkbox] {
+    width:16px;
+    height:16px;
+    margin:0;
+    accent-color: var(--accent);
+    cursor:pointer;
+}

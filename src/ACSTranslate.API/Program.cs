@@ -1,122 +1,67 @@
-using ACSTranslate;
-using ACSTranslate.Core;
-using Azure.Communication.CallAutomation;
-using Azure.Communication.Identity;
 using Azure.Core;
 using Azure.Identity;
-using Azure.Monitor.OpenTelemetry.AspNetCore;
-using Azure.ResourceManager;
-using Microsoft.EntityFrameworkCore;
-using System.Text.Json.Serialization;
+using Microsoft.AspNetCore.Mvc;
 
 var builder = WebApplication.CreateBuilder(args);
 
-builder.Services.AddOpenApi();
-builder.Services.AddControllers()
-    .AddJsonOptions(options =>
+builder.Services.AddConfig().MapConfigPart(x => x.AzureAISpeech);
+
+builder.Services.AddSingleton<WebSocketManager>();
+builder.Services.AddSingleton<CallManager>();
+builder.Services.AddSingleton<CognitiveServicesAuth>();
+builder.Services.AddSingleton<TokenCredential>(context
+    => new DefaultAzureCredential(new DefaultAzureCredentialOptions
     {
-        options.JsonSerializerOptions.Converters.Add(new JsonStringEnumConverter()); // Configure JSON options
-    });
 
-// Only enable when running in Azure
-if (builder.Environment.IsProduction())
-{
-    builder.Services.AddOpenTelemetry().UseAzureMonitor();
-}
-
-builder.Services.AddSingleton<ACSService>();
-builder.Services.AddSingleton<AudioWebSocketService>();
-builder.Services.AddSingleton<CallService>();
-builder.Services.AddSingleton<EventGridSubscriptionManager>();
-builder.Services.AddSingleton<InboundCallHandler>();
-builder.Services.BindConfiguration<InboundConfig>("Inbound");
-builder.Services.BindConfiguration<ACSConfig>("ACS");
-builder.Services.BindConfiguration<EventGridConfig>("EventGrid");
-builder.Services.AddSingleton<TranscribeService>();
-builder.Services.AddSingleton<IAudioStorage, NullAudioStorage>();
-
-builder.Services.BindConfiguration<AzureAISpeechConfig>("AzureAISpeech");
-builder.Services.AddSingleton<AzureAISpeechTranslatorFactory>();
-
-builder.Services.AddSingleton<IEnumerable<IEventGridHandler>>(services => [
-    services.GetRequiredService<InboundCallHandler>()
-]);
-builder.Services.AddSingleton<TokenCredential>(services =>
-{
-    var tenantId = services.GetRequiredService<IConfiguration>().GetValue<string>("AzureTenantId");
-    var managedIdentityObjectId = services.GetRequiredService<IConfiguration>().GetValue<string>("ManagedIdentityClientId");
-
-    if (string.IsNullOrWhiteSpace(managedIdentityObjectId))
-    {
-        var options = new AzureCliCredentialOptions();
-        if (!string.IsNullOrEmpty(tenantId)) options.TenantId = tenantId;
-        return new AzureCliCredential(options);
-    }
-    else
-    {
-        DefaultAzureCredentialOptions options = new()
-        {
-            ManagedIdentityClientId = managedIdentityObjectId,
-            WorkloadIdentityClientId = managedIdentityObjectId
-        };
-        return new DefaultAzureCredential(options);
-    }
-});
-builder.Services.AddSingleton<ArmClient>(services => new ArmClient(services.GetRequiredService<TokenCredential>()));
-builder.Services.AddSingleton<CommunicationIdentityClient>(services =>
-{
-    var endpoint = services.GetRequiredService<ACSConfig>().Endpoint;
-    var credential = services.GetRequiredService<TokenCredential>();
-    return new CommunicationIdentityClient(endpoint, credential);
-});
-builder.Services.AddSingleton<CallAutomationClient>(services =>
-{
-    var endpoint = services.GetRequiredService<ACSConfig>().Endpoint;
-    var credential = services.GetRequiredService<TokenCredential>();
-    return new CallAutomationClient(endpoint, credential);
-});
-
-builder.Services.AddDbContextFactory<OrchestratorContext>((services, options) =>
-{
-    var connectionString = services.GetRequiredService<IConfiguration>().GetConnectionString("SQLDB");
-    if (string.IsNullOrEmpty(connectionString))
-    {
-        options.UseInMemoryDatabase("Orchestrator");
-    }
-    else
-    {
-        options.UseAzureSql(connectionString);
-    }
-});
-
-// Add CORS services
-builder.Services.AddCors(options =>
-{
-    options.AddDefaultPolicy(builder =>
-    {
-        builder.AllowAnyOrigin()
-               .AllowAnyMethod()
-               .AllowAnyHeader();
-    });
-});
+    }));
 
 var app = builder.Build();
 
-await app.EnsureDbCreatedAsync<OrchestratorContext>();
-_ = Task.Run(async () =>
+// Basic auth using query string code
+app.Use(async (context, next) =>
 {
-    // Wait 5 seconds before trying to auto-configure the Event Grid subscription
-    //  as we need the endpoint to be available to configure the subscription
-    await Task.Delay(5_000);
-    await app.TryAutoConfigureEventGridSubscriptionAsync();
+    var authCode = context.RequestServices.GetRequiredService<Config>().AuthCode;
+    if (!string.IsNullOrEmpty(authCode))
+    {
+        var code = context.Request.Query["code"].FirstOrDefault();
+        if (context.Request.Path.StartsWithSegments("/public"))
+        {
+            // Allow public files
+        }
+        else if (string.IsNullOrEmpty(code) || !code.Equals(authCode, StringComparison.Ordinal))
+        {
+            context.Response.StatusCode = 401;
+            await context.Response.WriteAsync("Unauthorized");
+            return;
+        }
+    }
+    else
+    {
+        context.RequestServices.GetRequiredService<ILogger<Program>>()
+            .LogError("!!! No auth code has been configured, skipping authentication !!!");
+    }
+    await next();
 });
 
 
-app.MapOpenApi();
+app.UseWebSockets();
 app.UseDefaultFiles();
 app.UseStaticFiles();
-app.UseWebSockets();
-app.UseCors(); // Use CORS middleware
-app.MapControllers();
+app.MapGet("/api/user/ws", async (
+        [FromServices] WebSocketManager ws,
+        [FromServices] CallManager cm,
+        HttpContext context
+    )
+    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectUserAsync(ws, ct))
+);
+app.MapGet("/api/agent/ws", async (
+        [FromServices] WebSocketManager ws,
+        [FromServices] CallManager cm,
+        HttpContext context
+    )
+    => await ws.UpgradeAsync(context, (ws, ct) => cm.ConnectAgentAsync(ws, ct))
+);
+app.MapGet("/", () => "Ok.");
+var tokenWarmer = Task.Run(async () => await app.Services.GetRequiredService<CognitiveServicesAuth>().KeepWarmAsync());
 
 app.Run();

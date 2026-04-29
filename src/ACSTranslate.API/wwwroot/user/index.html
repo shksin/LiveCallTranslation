@@ -1,45 +1,74 @@
-<html data-theme="light">
+<html>
 
 <head>
-    <title>Live Call Translation - User Interface</title>
-    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bulma@1.0.2/css/bulma.min.css">
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>User Interface</title>
+    <link rel="stylesheet" href="/public/style.css">
 </head>
 
 <body>
-    <div class="container is-max-tablet section is-large">
-        <article class="panel">
-            <p class="panel-heading">Live Call Translation Dial-in</p>
-            <div class="p-3 fieldset">
-                <div class="field">
-                    <label class="label">Name</label>
-                    <div class="control">
-                        <input class="input" type="text" id="name" placeholder="Name">
-                    </div>
-                </div>
-                <div class="field">
-                    <label class="label">Language</label>
-                    <div class="control">
-                        <div class="select is-fullwidth">
-                            <select id="language">
-                                <option value="ar">Arabic</option>
-                                <option value="es">Spanish</option>
-                                <option value="fr">French</option>
-                                <option value="de">German</option>
-                                <option value="vi">Vietnamese</option>
-                                <option value="zh">Chinese</option>
-                            </select>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            <p class="panel-block" id="status">Waiting for auth...</p>
-            <div class="buttons panel-block">
-                <button class="button is-success" id="connect" disabled="true">Connect</button>
-                <button class="button is-danger" id="disconnect" disabled="true">Disconnect</button>
-            </div>
-        </article>
-    </div>
-    <script src="./main.js"></script>
+    <header>Real-Time Call Translation - User Dial-in</header>
+    <button id="enableAudio" style="display: none;">Enable Audio</button>
+    <p id="status"></p>
+    <script src="/public/helper.js"></script>
+    <script>
+        (async () => {
+            const statusText = document.getElementById("status");
+            let audioEnabled = false;
+            let socket = null;
+
+            // Configure audio
+            statusText.innerText = "Setting up audio...";
+            const sampleRate = 16000;
+            const voiceAgentNode = await setupAudioWorklet(sampleRate, (data) => {
+                if (audioEnabled && socket?.readyState === WebSocket.OPEN && data?.length > 0) {
+                    socket.send(JSON.stringify({
+                        type: "audio",
+                        data: btoa(String.fromCharCode(...data))
+                    }));
+                }
+            });
+
+            if (!voiceAgentNode) {
+                document.body.innerHTML = "<h1>Audio setup failed</h1><p>Please allow microphone access and refresh the page. (Details are in console)</p>";
+                return;
+            }
+
+            // Finally connect our socket
+            const refresh = () => location.reload();
+            const authCode = new URLSearchParams(window.location.search).get("code");
+            statusText.innerText = "Connecting to server...";
+            socket = new WebSocket("/api/user/ws?code=" + encodeURIComponent(authCode || ""));
+            socket.onclose = (event) => {
+                console.log("WebSocket closed:", event);
+                setTimeout(refresh, 1000);
+            };
+            socket.onerror = (error) => {
+                console.error("WebSocket error:", error);
+                socket.close();
+            };
+            socket.onopen = (event) => {
+                console.log("WebSocket opened:", event);
+                statusText.innerText = "Connected. Waiting for agent...";
+            };
+            socket.onmessage = (event) => {
+                const message = JSON.parse(event.data);
+                if (message.type === "refresh" || message.type === "disconnect") refresh();
+                else if (message.type === "ping") {}
+                else if (message.type === "enable") {
+                    // Enable the microphone
+                    audioEnabled = true;
+                    statusText.innerText = "Speaking with agent...";
+                } else if (message.type === "audio") {
+                    // Play audio
+                    voiceAgentNode.port.postMessage(atobInt16(message.data));
+                } else {
+                    console.warn("Unknown message type:", message);
+                }
+            };
+        })();
+    </script>
 </body>
 
 </html>
