@@ -39,7 +39,7 @@ public class CognitiveServicesAuth(
 
         // Use FromEndpoint with the documented private endpoint TTS path.
         var host = new Uri(_config.Endpoint).Host;
-        var ttsEndpoint = $"wss://{host}/tts/cognitiveservices/v1";
+        var ttsEndpoint = $"wss://{host}/tts/cognitiveservices/websocket/v1";
 
         try
         {

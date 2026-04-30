@@ -22,7 +22,7 @@ public class TranslatorInstance : IDisposable
         // Use FromEndpoint with documented private endpoint paths.
         var host = new Uri(endpoint).Host;
         var sttEndpointUri = new Uri($"wss://{host}/stt/speech/universal/v2");
-        var ttsEndpointUri = new Uri($"wss://{host}/tts/cognitiveservices/v1");
+        var ttsEndpointUri = new Uri($"wss://{host}/tts/cognitiveservices/websocket/v1");
 
         // Set up translator
         _translationConfig = SpeechTranslationConfig.FromEndpoint(sttEndpointUri);
